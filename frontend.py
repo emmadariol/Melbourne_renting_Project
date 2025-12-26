@@ -84,17 +84,38 @@ if search:
                             """)
                             
                             # Geospatial Check Button
-                            if st.button(f"🔍 Check Amenities for House #{i+1}", key=f"geo_{i}"):
-                                with st.spinner("Querying Satellite/OSM Data..."):
-                                    # Check for Lake
-                                    geo_res = requests.get(f"{API_URL}/amenities", 
-                                        params={"lat": house['Lattitude'], "lon": house['Longtitude'], "amenity": "lake"})
-                                    geo_data = geo_res.json()
+        
+                            if st.button(f"Generate Location Report for House #{i+1}", key=f"geo_{i}"):
+                                with st.spinner("Analyzing neighborhood infrastructure..."):
                                     
-                                    if geo_data.get('found'):
-                                        st.success(f"✅ {geo_data['message']}")
+                                    # Call the new endpoint
+                                    report_res = requests.get(f"{API_URL}/house_report", 
+                                                            params={"lat": house['Lattitude'], "lon": house['Longtitude']})
+                                    report_data = report_res.json()
+
+                                    if report_data["status"] == "success":
+                                        data = report_data["data"]
+                                        
+                                        # Display results in columns
+                                        c1, c2, c3 = st.columns(3)
+                                        
+                                        with c1:
+                                            st.markdown("**🚆 Transport**")
+                                            st.write(f"Train: {data.get('train_station') or 'N/A'}m")
+                                            st.write(f"Tram: {data.get('tram_stop') or 'N/A'}m")
+                                        
+                                        with c2:
+                                            st.markdown("**🎓 Education & Health**")
+                                            st.write(f"School: {data.get('school') or 'N/A'}m")
+                                            st.write(f"Hospital: {data.get('hospital') or 'N/A'}m")
+                                        
+                                        with c3:
+                                            st.markdown("**☕ Lifestyle**")
+                                            st.write(f"Cafe: {data.get('cafe') or 'N/A'}m")
+                                            st.write(f"Gym: {data.get('gym') or 'N/A'}m")
+                                            
                                     else:
-                                        st.info("❌ No lake immediately nearby.")
+                                        st.error("Could not fetch location data.")
                             
                             st.divider()
             else:

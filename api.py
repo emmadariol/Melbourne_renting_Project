@@ -62,6 +62,10 @@ def recommend_house(prefs: UserPreferences):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/amenities")
-def check_amenities(lat: float, lon: float, amenity: str):
-    return geo_service.check_nearby(lat, lon, amenity)
+
+@app.get("/house_report")
+def get_house_report(lat: float, lon: float):
+    """
+    Returns distances to all key amenities (Schools, Transport, etc.)
+    """
+    return geo_service.scan_area(lat, lon)
