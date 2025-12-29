@@ -1,0 +1,23 @@
+# --- Python Internals ---
+__pycache__/
+*.py[cod]
+
+# --- Virtual Environments ---
+.venv/
+venv/
+env/
+
+# --- For potential future notebooks ---
+.ipynb_checkpoints/
+
+# --- OS System Files ---
+.DS_Store
+Thumbs.db
+
+# --- MLOps Artifacts ---
+# Exclude generated model binaries
+model_artifacts.pkl
+
+# --- Datasets ---
+# Uncomment if dataset exceeds 100MB
+# melb_data.csv
