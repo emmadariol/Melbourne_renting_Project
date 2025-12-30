@@ -1,8 +1,10 @@
 import streamlit as st
 import requests
 import pandas as pd
+import os
 
-API_URL = "http://127.0.0.1:8000"
+# Use Docker network URL if available, otherwise fallback to localhost
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="Melb House Finder", layout="wide")
 st.title("🏡 Melbourne Housing Recommender")
