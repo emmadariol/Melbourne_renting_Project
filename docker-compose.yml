@@ -1,0 +1,23 @@
+services:
+  # Backend Service (API)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: house-api
+    ports:
+      - "8000:8000"
+
+  # Frontend Service (Streamlit)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: house-frontend
+    ports:
+      - "8501:8501"
+    # Configure API URL using the service name (internal Docker network)
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      - api
