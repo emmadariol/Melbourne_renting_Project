@@ -7,7 +7,14 @@ import os
 API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="Melb House Finder", layout="wide")
-st.title("🏡 Melbourne Housing Recommender")
+st.title("Melbourne Housing Recommender")
+
+# --- Initialize Session State ---
+# This keeps the results in memory even when you click other buttons
+if "recommendations" not in st.session_state:
+    st.session_state.recommendations = []
+if "search_performed" not in st.session_state:
+    st.session_state.search_performed = False
 
 # --- Sidebar Inputs ---
 with st.sidebar:
@@ -43,9 +50,10 @@ with st.sidebar:
         "Northern Victoria", "Western Victoria"
     ])
 
+    # When this is clicked, we will update the session state
     search = st.button("Find Matching Houses")
 
-# --- Main Page ---
+# --- Logic to Fetch Data ---
 if search:
     payload = {
         "Rooms": rooms, "Price": price, "Distance": dist, "Bathroom": bathroom,
@@ -58,69 +66,81 @@ if search:
         try:
             res = requests.post(f"{API_URL}/recommend", json=payload)
             if res.status_code == 200:
-                data = res.json().get("recommendations", [])
-                
-                if not data:
-                    st.warning("No matches found.")
-                else:
-                    # Visualizing results
-                    st.success("Top 5 Recommendations based on your criteria:")
-                    
-                    # Create a map dataframe
-                    map_data = pd.DataFrame(data)[['Lattitude', 'Longtitude']].dropna()
-                    map_data.columns = ['lat', 'lon']
-                    st.map(map_data)
-
-                    for i, house in enumerate(data):
-                        with st.container():
-                            st.markdown(f"### {i+1}. {house.get('Address', 'Unknown Address')}")
-                            c1, c2, c3 = st.columns(3)
-                            c1.metric("Price", f"${house['Price']:,.0f}")
-                            c2.metric("Suburb", house['Suburb'])
-                            c3.metric("Seller", house['SellerG']) # Displaying Seller even if not used in logic
-                            
-                            st.markdown(f"""
-                            **Details:** {house['Rooms']} Beds | {house['Bathroom']} Baths | {house['Car']} Cars  
-                            **Type:** {type_options.get(house['Type'], house['Type'])}  
-                            **Method:** {house['Method']} (Sale Type)
-                            """)
-                            
-                            # Geospatial Check Button
-        
-                            if st.button(f"Generate Location Report for House #{i+1}", key=f"geo_{i}"):
-                                with st.spinner("Analyzing neighborhood infrastructure..."):
-                                    
-                                    # Call the new endpoint
-                                    report_res = requests.get(f"{API_URL}/house_report", 
-                                                            params={"lat": house['Lattitude'], "lon": house['Longtitude']})
-                                    report_data = report_res.json()
-
-                                    if report_data["status"] == "success":
-                                        data = report_data["data"]
-                                        
-                                        # Display results in columns
-                                        c1, c2, c3 = st.columns(3)
-                                        
-                                        with c1:
-                                            st.markdown("**🚆 Transport**")
-                                            st.write(f"Train: {data.get('train_station') or 'N/A'}m")
-                                            st.write(f"Tram: {data.get('tram_stop') or 'N/A'}m")
-                                        
-                                        with c2:
-                                            st.markdown("**🎓 Education & Health**")
-                                            st.write(f"School: {data.get('school') or 'N/A'}m")
-                                            st.write(f"Hospital: {data.get('hospital') or 'N/A'}m")
-                                        
-                                        with c3:
-                                            st.markdown("**☕ Lifestyle**")
-                                            st.write(f"Cafe: {data.get('cafe') or 'N/A'}m")
-                                            st.write(f"Gym: {data.get('gym') or 'N/A'}m")
-                                            
-                                    else:
-                                        st.error("Could not fetch location data.")
-                            
-                            st.divider()
+                # Store results in session state
+                st.session_state.recommendations = res.json().get("recommendations", [])
+                st.session_state.search_performed = True
             else:
                 st.error(f"Error {res.status_code}: {res.text}")
         except Exception as e:
             st.error(f"Connection Error: {e}")
+
+# --- Main Page Display ---
+# We check session_state instead of the button directly
+if st.session_state.search_performed:
+    data = st.session_state.recommendations
+    
+    if not data:
+        st.warning("No matches found.")
+    else:
+        st.success("Top 5 Recommendations based on your criteria:")
+        
+        # Create a map dataframe
+        map_data = pd.DataFrame(data)[['Lattitude', 'Longtitude']].dropna()
+        map_data.columns = ['lat', 'lon']
+        st.map(map_data)
+
+        for i, house in enumerate(data):
+            with st.container():
+                st.markdown(f"### {i+1}. {house.get('Address', 'Unknown Address')}")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Price", f"${house['Price']:,.0f}")
+                c2.metric("Suburb", house['Suburb'])
+                c3.metric("Seller", house['SellerG'])
+                
+                st.markdown(f"""
+                **Details:** {house['Rooms']} Beds | {house['Bathroom']} Baths | {house['Car']} Cars  
+                **Type:** {type_options.get(house['Type'], house['Type'])}  
+                **Method:** {house['Method']} (Sale Type)
+                """)
+                
+                # --- Geospatial Check Button ---
+                # This button is now stable because 'data' persists in session_state
+                if st.button(f"Generate Location Report for House #{i+1}", key=f"geo_{i}"):
+                    with st.spinner("Analyzing neighborhood infrastructure..."):
+                        
+                        try:
+                            report_res = requests.get(f"{API_URL}/house_report", 
+                                                    params={"lat": house['Lattitude'], "lon": house['Longtitude']})
+                            report_data = report_res.json()
+
+                            if report_data["status"] == "success":
+                                rdata = report_data["data"]
+                                
+                                # Display results in columns (Updated with new fields)
+                                rc1, rc2, rc3 = st.columns(3)
+                                
+                                with rc1:
+                                    st.markdown("**Transport**")
+                                    st.write(f"Train: {rdata.get('train_station') or 'N/A'}m")
+                                    st.write(f"Tram: {rdata.get('tram_stop') or 'N/A'}m")
+                                    st.write(f"Bus: {rdata.get('bus_stop') or 'N/A'}m")
+                                
+                                with rc2:
+                                    st.markdown("**Education & Services**")
+                                    st.write(f"School: {rdata.get('school') or 'N/A'}m")
+                                    st.write(f"Hospital: {rdata.get('hospital') or 'N/A'}m")
+                                    st.write(f"Supermarket: {rdata.get('supermarket') or 'N/A'}m")
+                                
+                                with rc3:
+                                    st.markdown("**Nature & Lifestyle**")
+                                    st.write(f"Park: {rdata.get('park') or 'N/A'}m")
+                                    st.write(f"Lake: {rdata.get('lake') or 'N/A'}m")
+                                    st.write(f"Cafe: {rdata.get('cafe') or 'N/A'}m")
+                                    st.write(f"Gym: {rdata.get('gym') or 'N/A'}m")
+                                    
+                            else:
+                                st.error("Could not fetch location data.")
+                        except Exception as e:
+                            st.error(f"Error fetching report: {e}")
+                
+                st.divider()

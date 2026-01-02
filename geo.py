@@ -9,7 +9,8 @@ warnings.filterwarnings("ignore")
 class GeoService:
     def __init__(self):
         # 1. EXPANDED AMENITIES CONFIGURATION
-        # We categorize them to make reporting easier
+        # We categorize them to make reporting easier.
+        # This list includes supermarkets, schools, lakes, and more.
         self.amenities = {
             "lake":         {"tags": {"natural": "water", "water": "lake"}, "label": "Nature"},
             "park":         {"tags": {"leisure": "park", "landuse": "recreation_ground"}, "label": "Nature"},
@@ -79,7 +80,8 @@ class GeoService:
             all_pois = ox.features_from_point((lat, lon), tags=all_tags, dist=radius)
             
             if all_pois.empty:
-                return {"status": "empty", "data": {}}
+                # Return empty report if nothing is found
+                return {"status": "success", "data": {k: None for k in self.amenities}}
 
             # 3. Process the results locally
             # We iterate through our defined amenities and filter the downloaded data
@@ -115,10 +117,6 @@ if __name__ == "__main__":
     # Coordinates for Flinders Street Station (Central Melbourne)
     test_lat, test_lon = -37.8183, 144.9671
     
-    print("--- Testing Single Check (Gym) ---")
-    print(geo.check_nearby(test_lat, test_lon, "gym"))
-    
-    print("\n--- Testing Full Area Scan (Report Card) ---")
-    # This might take 2-3 seconds, but gets EVERYTHING
+    print("--- Testing Full Area Scan ---")
     report = geo.scan_area(test_lat, test_lon)
     print(report)
