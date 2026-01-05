@@ -13,6 +13,7 @@ env/
 # --- OS System Files ---
 .DS_Store
 Thumbs.db
+*Zone.Identifier*
 
 # --- MLOps Artifacts ---
 # Exclude generated model binaries
