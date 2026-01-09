@@ -16,11 +16,24 @@ st.set_page_config(
 # --- Custom CSS for Polish ---
 st.markdown("""
 <style>
+    /* Use Streamlit's built-in CSS variables.
+       These automatically change values depending on Light/Dark mode.
+    */
     .stMetric {
-        background-color: #f0f2f6;
+        background-color: var(--secondary-background-color) !important;
+        border: 1px solid var(--background-color) !important;
+        color: var(--text-color) !important;
         padding: 10px;
         border-radius: 5px;
     }
+    
+    /* Force the text inside the metric to respect the theme color */
+    .stMetric [data-testid="stMetricValue"], 
+    .stMetric [data-testid="stMetricLabel"] {
+        color: var(--text-color) !important;
+    }
+
+    /* Adjust sidebar expander font size */
     div[data-testid="stExpander"] div[role="button"] p {
         font-size: 1.1rem;
         font-weight: 600;
