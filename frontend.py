@@ -1,57 +1,83 @@
 import streamlit as st
 import requests
 import pandas as pd
+import pydeck as pdk
 import os
 
 # Use Docker network URL if available, otherwise fallback to localhost
 API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
-st.set_page_config(page_title="Melb House Finder", layout="wide")
+st.set_page_config(
+    page_title="Melb House Finder", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# --- Custom CSS for Polish ---
+st.markdown("""
+<style>
+    .stMetric {
+        background-color: #f0f2f6;
+        padding: 10px;
+        border-radius: 5px;
+    }
+    div[data-testid="stExpander"] div[role="button"] p {
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("Melbourne Housing Recommender")
+st.markdown("Find your dream home based on similarity to your ideal criteria.")
 
 # --- Initialize Session State ---
-# This keeps the results in memory even when you click other buttons
 if "recommendations" not in st.session_state:
     st.session_state.recommendations = []
 if "search_performed" not in st.session_state:
     st.session_state.search_performed = False
 
-# --- Sidebar Inputs ---
+# --- Sidebar Inputs (Organized) ---
 with st.sidebar:
-    st.header("Parameters")
+    st.header("Search Filters")
     
-    # Numerical
-    rooms = st.slider("Rooms", 1, 10, 3)
-    price = st.number_input("Target Price ($)", 100000, 10000000, 1000000, step=50000)
-    dist = st.slider("Max Distance from CBD (km)", 1.0, 50.0, 10.0)
-    bathroom = st.slider("Bathrooms", 1, 5, 2)
-    car = st.slider("Car Spots", 0, 5, 1)
-    land = st.number_input("Landsize (sqm)", 0, 10000, 600)
-    build_area = st.number_input("Building Area (sqm)", 0, 5000, 150)
-    prop_count = st.slider("Suburb Density (Property Count)", 0, 22000, 5000, 
-                           help="Higher number = more dense suburb")
-    year_built = st.number_input("Year Built (Approx)", 1800, 2024, 2000)
+    # Group 1: Essential
+    with st.expander("Location & Budget", expanded=True):
+        region = st.selectbox("Region", [
+            "Southern Metropolitan", "Northern Metropolitan", "Western Metropolitan", 
+            "Eastern Metropolitan", "South-Eastern Metropolitan", "Eastern Victoria",
+            "Northern Victoria", "Western Victoria"
+        ])
+        price = st.number_input("Target Price ($)", 100_000, 10_000_000, 1_000_000, step=50_000)
+        dist = st.slider("Max Distance (CBD)", 1.0, 50.0, 10.0, format="%d km")
 
-    # Categorical
-    type_options = {
-        "h": "House/Cottage/Villa",
-        "u": "Unit/Duplex",
-        "t": "Townhouse",
-        "br": "Bedroom(s)",
-        "dev site": "Development Site",
-        "o res": "Other Residential"
-    }
-    type_code = st.selectbox("Property Type", options=list(type_options.keys()), 
-                             format_func=lambda x: type_options[x])
+    # Group 2: Property Specs
+    with st.expander("Property Features", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            rooms = st.number_input("Rooms", 1, 10, 3)
+            bathroom = st.number_input("Baths", 1, 5, 2)
+        with col2:
+            car = st.number_input("Cars", 0, 5, 1)
+            year_built = st.number_input("Year", 1800, 2024, 2000)
+            
+        land = st.slider("Landsize (sqm)", 0, 10000, 600)
+        build_area = st.slider("Building Area (sqm)", 0, 5000, 150)
 
-    region = st.selectbox("Region", [
-        "Southern Metropolitan", "Northern Metropolitan", "Western Metropolitan", 
-        "Eastern Metropolitan", "South-Eastern Metropolitan", "Eastern Victoria",
-        "Northern Victoria", "Western Victoria"
-    ])
+    # Group 3: Advanced
+    with st.expander("Advanced & Type", expanded=False):
+        prop_count = st.slider("Suburb Density (Props)", 0, 22000, 5000, 
+                               help="Higher number = more dense suburb")
+        
+        type_options = {
+            "h": "House/Cottage", "u": "Unit/Duplex", "t": "Townhouse",
+            "br": "Bedroom(s)", "dev site": "Dev Site", "o res": "Other Res"
+        }
+        type_code = st.selectbox("Type", options=list(type_options.keys()), 
+                                 format_func=lambda x: type_options[x])
 
-    # When this is clicked, we will update the session state
-    search = st.button("Find Matching Houses")
+    st.divider()
+    search = st.button("Find Matches", type="primary", use_container_width=True)
 
 # --- Logic to Fetch Data ---
 if search:
@@ -62,11 +88,10 @@ if search:
         "Type": type_code, "Regionname": region
     }
     
-    with st.spinner("Calculating similarity..."):
+    with st.spinner("Crunching numbers and locating properties..."):
         try:
             res = requests.post(f"{API_URL}/recommend", json=payload)
             if res.status_code == 200:
-                # Store results in session state
                 st.session_state.recommendations = res.json().get("recommendations", [])
                 st.session_state.search_performed = True
             else:
@@ -75,72 +100,100 @@ if search:
             st.error(f"Connection Error: {e}")
 
 # --- Main Page Display ---
-# We check session_state instead of the button directly
 if st.session_state.search_performed:
     data = st.session_state.recommendations
     
     if not data:
-        st.warning("No matches found.")
+        st.warning("No matches found. Try adjusting your filters.")
     else:
-        st.success("Top 5 Recommendations based on your criteria:")
+        # Create Tabs for different views
+        tab_map, tab_list = st.tabs(["Map View", "Listings Details"])
         
-        # Create a map dataframe
-        map_data = pd.DataFrame(data)[['Lattitude', 'Longtitude']].dropna()
-        map_data.columns = ['lat', 'lon']
-        st.map(map_data)
+        # --- TAB 1: Interactive Map ---
+        with tab_map:
+            # Prepare data for PyDeck
+            map_df = pd.DataFrame(data)
+            # Ensure coordinates are float
+            map_df['lat'] = map_df['Lattitude'].astype(float)
+            map_df['lon'] = map_df['Longtitude'].astype(float)
+            
+            # Define view state centered on the first result
+            view_state = pdk.ViewState(
+                latitude=map_df['lat'].mean(),
+                longitude=map_df['lon'].mean(),
+                zoom=11,
+                pitch=0
+            )
 
-        for i, house in enumerate(data):
-            with st.container():
-                st.markdown(f"### {i+1}. {house.get('Address', 'Unknown Address')}")
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Price", f"${house['Price']:,.0f}")
-                c2.metric("Suburb", house['Suburb'])
-                c3.metric("Seller", house['SellerG'])
-                
-                st.markdown(f"""
-                **Details:** {house['Rooms']} Beds | {house['Bathroom']} Baths | {house['Car']} Cars  
-                **Type:** {type_options.get(house['Type'], house['Type'])}  
-                **Method:** {house['Method']} (Sale Type)
-                """)
-                
-                # --- Geospatial Check Button ---
-                # This button is now stable because 'data' persists in session_state
-                if st.button(f"Generate Location Report for House #{i+1}", key=f"geo_{i}"):
-                    with st.spinner("Analyzing neighborhood infrastructure..."):
-                        
-                        try:
-                            report_res = requests.get(f"{API_URL}/house_report", 
-                                                    params={"lat": house['Lattitude'], "lon": house['Longtitude']})
-                            report_data = report_res.json()
+            # Define Layer with Tooltip capability
+            layer = pdk.Layer(
+                "ScatterplotLayer",
+                data=map_df,
+                get_position='[lon, lat]',
+                get_color='[200, 30, 0, 160]',
+                get_radius=200,
+                pickable=True
+            )
+            
+            # Render Map with Tooltip
+            st.pydeck_chart(pdk.Deck(
+                map_style='mapbox://styles/mapbox/light-v9',
+                initial_view_state=view_state,
+                layers=[layer],
+                tooltip={"text": "{Address}\nPrice: ${Price}\n{Rooms} Beds"}
+            ))
+            st.caption("Hover over points to see details.")
 
-                            if report_data["status"] == "success":
-                                rdata = report_data["data"]
-                                
-                                # Display results in columns (Updated with new fields)
-                                rc1, rc2, rc3 = st.columns(3)
-                                
-                                with rc1:
-                                    st.markdown("**Transport**")
-                                    st.write(f"Train: {rdata.get('train_station') or 'N/A'}m")
-                                    st.write(f"Tram: {rdata.get('tram_stop') or 'N/A'}m")
-                                    st.write(f"Bus: {rdata.get('bus_stop') or 'N/A'}m")
-                                
-                                with rc2:
-                                    st.markdown("**Education & Services**")
-                                    st.write(f"School: {rdata.get('school') or 'N/A'}m")
-                                    st.write(f"Hospital: {rdata.get('hospital') or 'N/A'}m")
-                                    st.write(f"Supermarket: {rdata.get('supermarket') or 'N/A'}m")
-                                
-                                with rc3:
-                                    st.markdown("**Nature & Lifestyle**")
-                                    st.write(f"Park: {rdata.get('park') or 'N/A'}m")
-                                    st.write(f"Lake: {rdata.get('lake') or 'N/A'}m")
-                                    st.write(f"Cafe: {rdata.get('cafe') or 'N/A'}m")
-                                    st.write(f"Gym: {rdata.get('gym') or 'N/A'}m")
-                                    
-                            else:
-                                st.error("Could not fetch location data.")
-                        except Exception as e:
-                            st.error(f"Error fetching report: {e}")
-                
-                st.divider()
+        # --- TAB 2: Detailed Listings ---
+        with tab_list:
+            for i, house in enumerate(data):
+                # Create a card-like container
+                with st.container(border=True):
+                    # Header Row
+                    c1, c2 = st.columns([3, 1])
+                    with c1:
+                        st.subheader(f"{i+1}. {house.get('Address', 'Unknown Address')}")
+                        st.caption(f"Suburb: **{house['Suburb']}** | Seller: {house['SellerG']}")
+                    with c2:
+                        st.metric("Price", f"${house['Price']:,.0f}")
+                    
+                    st.divider()
+                    
+                    # Icons Row
+                    ic1, ic2, ic3, ic4 = st.columns(4)
+                    ic1.markdown(f"**{house['Rooms']}** Beds")
+                    ic2.markdown(f"**{house['Bathroom']}** Baths")
+                    ic3.markdown(f"**{house['Car']}** Spots")
+                    ic4.markdown(f"**{house['Landsize']}** m²")
+                    
+                    # Collapsible Neighborhood Report
+                    with st.expander("Neighborhood Report (Amenities)"):
+                        if st.button("Generate Infrastructure Scan", key=f"geo_{i}"):
+                            with st.spinner("Scanning OSM Data..."):
+                                try:
+                                    report_res = requests.get(f"{API_URL}/house_report", 
+                                                            params={"lat": house['Lattitude'], "lon": house['Longtitude']})
+                                    report_data = report_res.json()
+
+                                    if report_data["status"] == "success":
+                                        rdata = report_data["data"]
+                                        
+                                        # Use a cleaner table-like layout
+                                        rc1, rc2 = st.columns(2)
+                                        with rc1:
+                                            st.markdown("##### Transport")
+                                            st.write(f"• Train: **{rdata.get('train_station') or 'N/A'}m**")
+                                            st.write(f"• Tram: **{rdata.get('tram_stop') or 'N/A'}m**")
+                                        
+                                        with rc2:
+                                            st.markdown("##### Lifestyle")
+                                            st.write(f"• Park: **{rdata.get('park') or 'N/A'}m**")
+                                            st.write(f"• Cafe: **{rdata.get('cafe') or 'N/A'}m**")
+                                            st.write(f"• School: **{rdata.get('school') or 'N/A'}m**")
+                                            
+                                    else:
+                                        st.error("Could not fetch location data.")
+                                except Exception as e:
+                                    st.error(f"Error fetching report: {e}")
+                        else:
+                            st.info("Click to scan the neighborhood for transport, schools, and parks.")
