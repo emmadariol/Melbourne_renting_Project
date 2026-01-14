@@ -1,10 +1,15 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 import joblib
 import pandas as pd
 from geo import GeoService  # Ensure geo.py is in the same folder
 
 app = FastAPI(title="Melbourne Housing Recommender")
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/docs")
 
 # Load Artifacts
 try:
