@@ -92,6 +92,29 @@ with st.sidebar:
         }
         type_code = st.selectbox("Type", options=list(type_options.keys()), 
                                  format_func=lambda x: type_options[x])
+    
+    # Group 4: Required Nearby Amenities
+    with st.expander("Required Nearby Amenities", expanded=False):
+        st.markdown("**Select services that must be nearby:**")
+        st.caption("Each service has its own sensible search radius")
+        
+        amenity_options = {
+            "supermarket": "🛒 Supermarket (500m)",
+            "bus_stop": "🚌 Bus Stop (300m)",
+            "tram_stop": "🚊 Tram Stop (400m)",
+            "train_station": "🚆 Train Station (1.5km)",
+            "school": "🏫 School (1.5km)",
+            "park": "🌳 Park (1km)",
+            "cafe": "☕ Cafe (500m)",
+            "gym": "💪 Gym (1km)",
+            "hospital": "🏥 Hospital (3km)",
+            "lake": "🌊 Lake (3km)"
+        }
+        
+        selected_amenities = []
+        for key, label in amenity_options.items():
+            if st.checkbox(label, key=f"amenity_{key}"):
+                selected_amenities.append(key)
 
     st.divider()
     search = st.button("Find Matches", type="primary", use_container_width=True)
@@ -105,12 +128,20 @@ if search:
         "Type": type_code, "Regionname": region
     }
     
+    # Add required amenities if any were selected
+    if selected_amenities:
+        payload["required_amenities"] = selected_amenities
+    
     with st.spinner("Crunching numbers and locating properties..."):
         try:
             res = requests.post(f"{API_URL}/recommend", json=payload)
             if res.status_code == 200:
                 st.session_state.recommendations = res.json().get("recommendations", [])
                 st.session_state.search_performed = True
+                
+                # Show a message if amenity filtering was applied
+                if selected_amenities:
+                    st.info(f"Filtered results to include only houses near: {', '.join(selected_amenities)}")
             else:
                 st.error(f"Error {res.status_code}: {res.text}")
         except Exception as e:
