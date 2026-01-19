@@ -53,6 +53,9 @@ if "recommendations" not in st.session_state:
     st.session_state.recommendations = []
 if "search_performed" not in st.session_state:
     st.session_state.search_performed = False
+# [NEW] Initialize a dictionary to cache the geo reports
+if "geo_reports" not in st.session_state:
+    st.session_state.geo_reports = {}
 
 # --- Sidebar Inputs ---
 with st.sidebar:
@@ -138,6 +141,8 @@ if search:
             if res.status_code == 200:
                 st.session_state.recommendations = res.json().get("recommendations", [])
                 st.session_state.search_performed = True
+                # [NEW] Clear previous geo reports on new search
+                st.session_state.geo_reports = {}
                 
                 # Show a message if amenity filtering was applied
                 if selected_amenities:
@@ -223,31 +228,42 @@ if st.session_state.search_performed:
                     
                     # Neighborhood Report
                     with st.expander("Neighborhood Report (Amenities)"):
-                        if st.button("Generate Infrastructure Scan", key=f"geo_{i}"):
-                            with st.spinner("Scanning OSM Data..."):
-                                try:
-                                    report_res = requests.get(f"{API_URL}/house_report", 
-                                                            params={"lat": house['Lattitude'], "lon": house['Longtitude']})
-                                    report_data = report_res.json()
+                        # [NEW LOGIC] Check cache first
+                        cache_key = i
+                        rdata = st.session_state.geo_reports.get(cache_key)
 
-                                    if report_data["status"] == "success":
-                                        rdata = report_data["data"]
-                                        rc1, rc2 = st.columns(2)
-                                        with rc1:
-                                            st.markdown("##### Transport")
-                                            st.write(f"• Train: **{rdata.get('train_station') or 'N/A'}m**")
-                                            st.write(f"• Tram: **{rdata.get('tram_stop') or 'N/A'}m**")
-                                        with rc2:
-                                            st.markdown("##### Lifestyle")
-                                            st.write(f"• Park: **{rdata.get('park') or 'N/A'}m**")
-                                            st.write(f"• Cafe: **{rdata.get('cafe') or 'N/A'}m**")
-                                            st.write(f"• School: **{rdata.get('school') or 'N/A'}m**")
-                                    else:
-                                        st.error("Could not fetch location data.")
-                                except Exception as e:
-                                    st.error(f"Error fetching report: {e}")
-                        else:
-                            st.info("Click to scan the neighborhood for transport, schools, and parks.")
+                        if not rdata:
+                            # Only show button if data is NOT in cache
+                            if st.button("Generate Infrastructure Scan", key=f"geo_{i}"):
+                                with st.spinner("Scanning OSM Data..."):
+                                    try:
+                                        report_res = requests.get(f"{API_URL}/house_report", 
+                                                                params={"lat": house['Lattitude'], "lon": house['Longtitude']})
+                                        report_data = report_res.json()
+
+                                        if report_data["status"] == "success":
+                                            rdata = report_data["data"]
+                                            # [NEW] Save to session state
+                                            st.session_state.geo_reports[cache_key] = rdata
+                                        else:
+                                            st.error("Could not fetch location data.")
+                                    except Exception as e:
+                                        st.error(f"Error fetching report: {e}")
+                            else:
+                                st.info("Click to scan the neighborhood for transport, schools, and parks.")
+                        
+                        # [NEW LOGIC] Display data if available (freshly fetched or from cache)
+                        if rdata:
+                            rc1, rc2 = st.columns(2)
+                            with rc1:
+                                st.markdown("##### Transport")
+                                st.write(f"• Train: **{rdata.get('train_station') or 'N/A'}m**")
+                                st.write(f"• Tram: **{rdata.get('tram_stop') or 'N/A'}m**")
+                            with rc2:
+                                st.markdown("##### Lifestyle")
+                                st.write(f"• Park: **{rdata.get('park') or 'N/A'}m**")
+                                st.write(f"• Cafe: **{rdata.get('cafe') or 'N/A'}m**")
+                                st.write(f"• School: **{rdata.get('school') or 'N/A'}m**")
 
         # --- TAB 3: Market Statistics ---
         with tab_stats:
