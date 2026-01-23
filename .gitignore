@@ -21,4 +21,4 @@ model_artifacts.pkl
 
 # --- Datasets ---
 # Uncomment if dataset exceeds 100MB
-# melb_data.csv
+# melb_data.csvcache/
