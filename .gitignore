@@ -1,6 +1,8 @@
 # --- Python Internals ---
 __pycache__/
 *.py[cod]
+# Ignore local cache data
+cache/
 
 # --- Virtual Environments ---
 .venv/
