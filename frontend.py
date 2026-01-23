@@ -17,7 +17,9 @@ st.set_page_config(
 # --- Custom CSS for Visibility (Light & Dark Mode Support) ---
 st.markdown("""
 <style>
-    /* 1. Metric Box Styling */
+    /* 1. Metric Box Styling 
+       We use Streamlit's internal variables (var(--...)) so colors adapt automatically.
+    */
     .stMetric {
         background-color: var(--secondary-background-color) !important;
         border: 1px solid var(--background-color) !important;
@@ -26,7 +28,10 @@ st.markdown("""
         border-radius: 5px;
     }
     
-    /* 2. Text Visibility Fix */
+    /* 2. Text Visibility Fix
+       This specifically targets the Value (Price) and Label (Title) inside the box.
+       It forces them to use the theme's text color (Dark in Light Mode, White in Dark Mode).
+    */
     .stMetric [data-testid="stMetricValue"], 
     .stMetric [data-testid="stMetricLabel"] {
         color: var(--text-color) !important;
@@ -48,76 +53,15 @@ if "recommendations" not in st.session_state:
     st.session_state.recommendations = []
 if "search_performed" not in st.session_state:
     st.session_state.search_performed = False
+# [NEW] Initialize a dictionary to cache the geo reports
 if "geo_reports" not in st.session_state:
     st.session_state.geo_reports = {}
-
-# --- Helper Function to Render a House Card ---
-def render_house_card(index, house, is_highlighted=False):
-    """Renders the details of a single house."""
-    # Add a visual border or highlight if it's the selected one
-    container_border = True
-    
-    with st.container(border=container_border):
-        if is_highlighted:
-            st.markdown("### 🎯 Selected Property")
-        
-        # Header
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            st.subheader(f"{index+1}. {house.get('Address', 'Unknown Address')}")
-            st.caption(f"Suburb: **{house['Suburb']}** | Seller: {house['SellerG']}")
-        with c2:
-            st.metric("Price", f"${house['Price']:,.0f}")
-        
-        st.divider()
-        
-        # Icons
-        ic1, ic2, ic3, ic4 = st.columns(4)
-        ic1.markdown(f"**{house['Rooms']}** Beds")
-        ic2.markdown(f"**{house['Bathroom']}** Baths")
-        ic3.markdown(f"**{house['Car']}** Spots")
-        ic4.markdown(f"**{house['Landsize']}** m²")
-        
-        # Neighborhood Report
-        with st.expander("Neighborhood Report (Amenities)", expanded=is_highlighted):
-            cache_key = index
-            rdata = st.session_state.geo_reports.get(cache_key)
-
-            if not rdata:
-                if st.button("Generate Infrastructure Scan", key=f"geo_{index}"):
-                    with st.spinner("Scanning OSM Data..."):
-                        try:
-                            report_res = requests.get(f"{API_URL}/house_report", 
-                                                    params={"lat": house['Lattitude'], "lon": house['Longtitude']})
-                            report_data = report_res.json()
-
-                            if report_data["status"] == "success":
-                                rdata = report_data["data"]
-                                st.session_state.geo_reports[cache_key] = rdata
-                                st.rerun() # Rerun to show data immediately
-                            else:
-                                st.error("Could not fetch location data.")
-                        except Exception as e:
-                            st.error(f"Error fetching report: {e}")
-                else:
-                    st.info("Click to scan the neighborhood for transport, schools, and parks.")
-            
-            if rdata:
-                rc1, rc2 = st.columns(2)
-                with rc1:
-                    st.markdown("##### Transport")
-                    st.write(f"• Train: **{rdata.get('train_station') or 'N/A'}m**")
-                    st.write(f"• Tram: **{rdata.get('tram_stop') or 'N/A'}m**")
-                with rc2:
-                    st.markdown("##### Lifestyle")
-                    st.write(f"• Park: **{rdata.get('park') or 'N/A'}m**")
-                    st.write(f"• Cafe: **{rdata.get('cafe') or 'N/A'}m**")
-                    st.write(f"• School: **{rdata.get('school') or 'N/A'}m**")
 
 # --- Sidebar Inputs ---
 with st.sidebar:
     st.header("Search Filters")
     
+    # Group 1: Essential
     with st.expander("Location & Budget", expanded=True):
         region = st.selectbox("Region", [
             "Southern Metropolitan", "Northern Metropolitan", "Western Metropolitan", 
@@ -127,6 +71,7 @@ with st.sidebar:
         price = st.number_input("Target Price ($)", 100_000, 10_000_000, 1_000_000, step=50_000)
         dist = st.slider("Max Distance (CBD)", 1.0, 50.0, 10.0, format="%d km")
 
+    # Group 2: Property Specs
     with st.expander("Property Features", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
@@ -139,24 +84,36 @@ with st.sidebar:
         land = st.slider("Landsize (sqm)", 0, 10000, 600)
         build_area = st.slider("Building Area (sqm)", 0, 5000, 150)
 
+    # Group 3: Advanced
     with st.expander("Advanced & Type", expanded=False):
-        prop_count = st.slider("Suburb Density (Props)", 0, 22000, 5000, help="Higher number = more dense suburb")
+        prop_count = st.slider("Suburb Density (Props)", 0, 22000, 5000, 
+                               help="Higher number = more dense suburb")
+        
         type_options = {
             "h": "House/Cottage", "u": "Unit/Duplex", "t": "Townhouse",
             "br": "Bedroom(s)", "dev site": "Dev Site", "o res": "Other Res"
         }
-        type_code = st.selectbox("Type", options=list(type_options.keys()), format_func=lambda x: type_options[x])
+        type_code = st.selectbox("Type", options=list(type_options.keys()), 
+                                 format_func=lambda x: type_options[x])
     
+    # Group 4: Required Nearby Amenities
     with st.expander("Required Nearby Amenities", expanded=False):
         st.markdown("**Select services that must be nearby:**")
         st.caption("Each service has its own sensible search radius")
+        
         amenity_options = {
-            "supermarket": "🛒 Supermarket (500m)", "bus_stop": "🚌 Bus Stop (300m)",
-            "tram_stop": "🚊 Tram Stop (400m)", "train_station": "🚆 Train Station (1.5km)",
-            "school": "🏫 School (1.5km)", "park": "🌳 Park (1km)",
-            "cafe": "☕ Cafe (500m)", "gym": "💪 Gym (1km)",
-            "hospital": "🏥 Hospital (3km)", "lake": "🌊 Lake (3km)"
+            "supermarket": "🛒 Supermarket (500m)",
+            "bus_stop": "🚌 Bus Stop (300m)",
+            "tram_stop": "🚊 Tram Stop (400m)",
+            "train_station": "🚆 Train Station (1.5km)",
+            "school": "🏫 School (1.5km)",
+            "park": "🌳 Park (1km)",
+            "cafe": "☕ Cafe (500m)",
+            "gym": "💪 Gym (1km)",
+            "hospital": "🏥 Hospital (3km)",
+            "lake": "🌊 Lake (3km)"
         }
+        
         selected_amenities = []
         for key, label in amenity_options.items():
             if st.checkbox(label, key=f"amenity_{key}"):
@@ -173,6 +130,8 @@ if search:
         "Propertycount": prop_count, "YearBuilt": year_built,
         "Type": type_code, "Regionname": region
     }
+    
+    # Add required amenities if any were selected
     if selected_amenities:
         payload["required_amenities"] = selected_amenities
     
@@ -182,7 +141,10 @@ if search:
             if res.status_code == 200:
                 st.session_state.recommendations = res.json().get("recommendations", [])
                 st.session_state.search_performed = True
+                #  Clear previous geo reports on new search
                 st.session_state.geo_reports = {}
+                
+                # Show a message if amenity filtering was applied
                 if selected_amenities:
                     st.info(f"Filtered results to include only houses near: {', '.join(selected_amenities)}")
             else:
@@ -197,12 +159,11 @@ if st.session_state.search_performed:
     if not data:
         st.warning("No matches found. Try adjusting your filters.")
     else:
-        # [UPDATED] Using Tabs to separate "Search & Details" from "Market Insights"
-        tab_main, tab_stats = st.tabs(["Property Search & Details", "📊 Market Insights"])
-
-        # --- TAB 1: Search, Map, and Listings ---
-        with tab_main:
-            # 1. MAP VIEW
+        # Create Tabs for different views
+        tab_map, tab_list, tab_stats = st.tabs(["Map View", "Listings Details", "Market Insights"])
+        
+        # --- TAB 1: Interactive Map ---
+        with tab_map:
             map_df = pd.DataFrame(data)
             map_df['lat'] = map_df['Lattitude'].astype(float)
             map_df['lon'] = map_df['Longtitude'].astype(float)
@@ -220,11 +181,11 @@ if st.session_state.search_performed:
                 get_position='[lon, lat]',
                 get_color='[200, 30, 0, 160]',
                 get_radius=200,
-                pickable=True,
-                id="house_layer",
-                auto_highlight=True
+                pickable=True
             )
             
+            # UPDATED: Explicit Tooltip Style (Dark Background / White Text)
+            # This ensures the tooltip is readable even on the "Light" map style.
             tooltip_config = {
                 "html": "<b>{Address}</b><br/>Price: ${Price}<br/>{Rooms} Beds",
                 "style": {
@@ -235,39 +196,76 @@ if st.session_state.search_performed:
                 }
             }
 
-            # ON_SELECT logic
-            event = st.pydeck_chart(pdk.Deck(
+            st.pydeck_chart(pdk.Deck(
                 map_style = None,
                 initial_view_state=view_state,
                 layers=[layer],
                 tooltip=tooltip_config
-            ), on_select="rerun", selection_mode="single-object")
-            
-            st.caption("Click on a red dot to view property details below.")
-            
-            # 2. DETERMINE SELECTED HOUSE
-            selected_index = None
-            if event.selection and "indices" in event.selection and "house_layer" in event.selection["indices"]:
-                indices = event.selection["indices"]["house_layer"]
-                if indices:
-                    selected_index = indices[0]
+            ))
+            st.caption("Hover over points to see details.")
 
-            # 3. DISPLAY SELECTED HOUSE
-            if selected_index is not None:
-                st.divider()
-                render_house_card(selected_index, data[selected_index], is_highlighted=True)
-                
-            # 4. DISPLAY OTHER RECOMMENDATIONS
-            st.divider()
-            st.subheader("All Recommended Properties")
-            
+        # --- TAB 2: Detailed Listings ---
+        with tab_list:
             for i, house in enumerate(data):
-                # Skip the one currently shown in the "Selected" section
-                if i == selected_index:
-                    continue
-                render_house_card(i, house)
+                with st.container(border=True):
+                    # Header
+                    c1, c2 = st.columns([3, 1])
+                    with c1:
+                        st.subheader(f"{i+1}. {house.get('Address', 'Unknown Address')}")
+                        st.caption(f"Suburb: **{house['Suburb']}** | Seller: {house['SellerG']}")
+                    with c2:
+                        # The CSS at the top ensures this is visible in Light Mode
+                        st.metric("Price", f"${house['Price']:,.0f}")
+                    
+                    st.divider()
+                    
+                    # Icons
+                    ic1, ic2, ic3, ic4 = st.columns(4)
+                    ic1.markdown(f"**{house['Rooms']}** Beds")
+                    ic2.markdown(f"**{house['Bathroom']}** Baths")
+                    ic3.markdown(f"**{house['Car']}** Spots")
+                    ic4.markdown(f"**{house['Landsize']}** m²")
+                    
+                    # Neighborhood Report
+                    with st.expander("Neighborhood Report (Amenities)"):
+                        #  Check cache first
+                        cache_key = i
+                        rdata = st.session_state.geo_reports.get(cache_key)
 
-        # --- TAB 2: Market Insights ---
+                        if not rdata:
+                            # Only show button if data is NOT in cache
+                            if st.button("Generate Infrastructure Scan", key=f"geo_{i}"):
+                                with st.spinner("Scanning OSM Data..."):
+                                    try:
+                                        report_res = requests.get(f"{API_URL}/house_report", 
+                                                                params={"lat": house['Lattitude'], "lon": house['Longtitude']})
+                                        report_data = report_res.json()
+
+                                        if report_data["status"] == "success":
+                                            rdata = report_data["data"]
+                                            # [NEW] Save to session state
+                                            st.session_state.geo_reports[cache_key] = rdata
+                                        else:
+                                            st.error("Could not fetch location data.")
+                                    except Exception as e:
+                                        st.error(f"Error fetching report: {e}")
+                            else:
+                                st.info("Click to scan the neighborhood for transport, schools, and parks.")
+                        
+                        # Display data if available (freshly fetched or from cache)
+                        if rdata:
+                            rc1, rc2 = st.columns(2)
+                            with rc1:
+                                st.markdown("##### Transport")
+                                st.write(f"• Train: **{rdata.get('train_station') or 'N/A'}m**")
+                                st.write(f"• Tram: **{rdata.get('tram_stop') or 'N/A'}m**")
+                            with rc2:
+                                st.markdown("##### Lifestyle")
+                                st.write(f"• Park: **{rdata.get('park') or 'N/A'}m**")
+                                st.write(f"• Cafe: **{rdata.get('cafe') or 'N/A'}m**")
+                                st.write(f"• School: **{rdata.get('school') or 'N/A'}m**")
+
+        # --- TAB 3: Market Statistics ---
         with tab_stats:
             market_engine = stats.MarketStats()
             market_engine.show_dashboard(region, type_code)
