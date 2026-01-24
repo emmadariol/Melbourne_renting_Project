@@ -6,12 +6,16 @@ import os
 from sklearn.pipeline import Pipeline
 from pydantic import BaseModel, Field, ValidationError
 from geo import GeoService
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+import time
 
 app = Flask(__name__)
 
 # --- Configuration ---
 ARTIFACT_PATH = "model_artifacts.pkl"
 geo_service = GeoService()
+geocoder = Nominatim(user_agent="melbourne_housing_app")
 
 # Global State
 model_pipeline = None
@@ -119,6 +123,38 @@ def house_report():
     if lat is None or lon is None:
         return jsonify({"error": "Missing lat/lon parameters"}), 400
     return jsonify(geo_service.scan_area(lat, lon))
+
+@app.route('/verify_address', methods=['POST'])
+def verify_address():
+    """Geocode an address and return lat/lon if valid"""
+    try:
+        data = request.json
+        address = data.get('address', '').strip()
+        suburb = data.get('suburb', '').strip()
+        
+        if not address:
+            return jsonify({"error": "Address is required"}), 400
+        
+        # Build full address with suburb and Australia
+        full_address = f"{address}, {suburb}, Victoria, Australia" if suburb else f"{address}, Victoria, Australia"
+        
+        # Geocode the address
+        location = geocoder.geocode(full_address, timeout=5)
+        
+        if location is None:
+            return jsonify({"error": f"Address not found: {full_address}"}), 404
+        
+        return jsonify({
+            "status": "success",
+            "address": location.address,
+            "latitude": location.latitude,
+            "longitude": location.longitude
+        })
+        
+    except (GeocoderTimedOut, GeocoderServiceError) as e:
+        return jsonify({"error": f"Geocoding service error: {str(e)}"}), 500
+    except Exception as e:
+        return jsonify({"error": f"Error verifying address: {str(e)}"}), 500
 
 @app.route('/agent/search', methods=['GET'])
 def search_houses():
