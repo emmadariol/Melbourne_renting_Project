@@ -27,6 +27,8 @@ if "geo_reports" not in st.session_state: st.session_state.geo_reports = []
 if "authenticated" not in st.session_state: st.session_state.authenticated = False
 if "selected_idx" not in st.session_state: st.session_state.selected_idx = None
 if "edit_house_data" not in st.session_state: st.session_state.edit_house_data = None
+if "verified_address" not in st.session_state: st.session_state.verified_address = None
+if "address_verified" not in st.session_state: st.session_state.address_verified = False
 
 # --- CONSTANTS ---
 COUNCILS = [
@@ -157,25 +159,63 @@ if role == "Home Seeker":
         layer = pdk.Layer("ScatterplotLayer", data=map_df, get_position='[Longtitude, Lattitude]', get_color='[200, 30, 0, 160]', get_radius=300, pickable=True, id="house_layer", auto_highlight=True)
         selection = st.pydeck_chart(pdk.Deck(initial_view_state=view_state, layers=[layer], tooltip={"html": "<b>{Address}</b><br>${Price}"}), on_select="rerun", selection_mode="single-object")
         
-        if selection.selection and "house_layer" in selection.selection:
-            indices = selection.selection["house_layer"]
-            if indices: st.session_state.selected_idx = indices[0]
+        if selection.selection and "indices" in selection.selection and "house_layer" in selection.selection["indices"]:
+            indices = selection.selection["indices"]["house_layer"]
+            if indices:
+                st.session_state.selected_idx = indices[0]
 
         display_data = data.copy()
         is_reordered = False
+        selected_item_data = None
+        
         if st.session_state.selected_idx is not None:
             idx = st.session_state.selected_idx
             if idx < len(display_data):
+                selected_item_data = display_data[idx]
                 selected_item = display_data.pop(idx)
                 display_data.insert(0, selected_item)
                 is_reordered = True
 
         st.divider()
         st.subheader("Property Matches")
+        
+        # Show the selected property details first if one is selected
+        if is_reordered and selected_item_data:
+            st.markdown("### 🎯 SELECTED PROPERTY")
+            with st.container(border=True):
+                c1, c2 = st.columns([3, 1])
+                c1.subheader(f"📍 {selected_item_data.get('Address')}")
+                c1.caption(f"{selected_item_data.get('Suburb')} | {selected_item_data.get('CouncilArea')} | {selected_item_data.get('Type')}")
+                c2.metric("Price", f"${selected_item_data.get('Price', 0):,.0f}")
+                
+                ic1, ic2, ic3, ic4 = st.columns(4)
+                ic1.write(f"🛏 **{selected_item_data['Rooms']}** Beds")
+                ic2.write(f"🚿 **{selected_item_data['Bathroom']}** Baths")
+                ic3.write(f"🚗 **{selected_item_data['Car']}** Spots")
+                ic4.write(f"📐 **{selected_item_data['Landsize']}** m²")
+                
+                st.markdown("---")
+                st.markdown("**Infrastructure Scan**")
+                if st.button("Generate Neighborhood Report", key="btn_selected", type="primary", use_container_width=True):
+                    with st.spinner("Analyzing neighborhood..."):
+                        try:
+                            r = requests.get(f"{API_URL}/house_report", params={"lat": selected_item_data['Lattitude'], "lon": selected_item_data['Longtitude']})
+                            if r.status_code == 200:
+                                data_response = r.json()
+                                if data_response.get("status") == "success": 
+                                    render_amenity_report(data_response.get("data"))
+                                else: 
+                                    st.error(f"Error from API: {data_response.get('message', 'Unknown error')}")
+                            else: 
+                                st.error(f"API Error: {r.status_code}")
+                        except Exception as e: 
+                            st.error(f"Connection error: {e}")
+            st.divider()
+
+        st.subheader("All Properties")
 
         for i, house in enumerate(display_data):
-            is_selected = (is_reordered and i == 0)
-            card_title = f"🎯 SELECTED: {house.get('Address')}" if is_selected else f"{house.get('Address')}"
+            card_title = f"{house.get('Address')}"
             
             with st.container(border=True):
                 c1, c2 = st.columns([3, 1])
@@ -189,19 +229,21 @@ if role == "Home Seeker":
                 ic3.write(f"🚗 **{house['Car']}** Spots")
                 ic4.write(f"📐 **{house['Landsize']}** m²")
                 
-                if is_selected:
-                    st.markdown("---")
-                    st.markdown("**Infrastructure Scan**")
-                    if st.button("Generate Neighborhood Report", key=f"btn_sel_{i}", type="primary"):
+                with st.expander("More Details"):
+                    if st.button("Scan Neighborhood", key=f"btn_list_{i}"):
                         with st.spinner("Analyzing neighborhood..."):
-                            r = requests.get(f"{API_URL}/house_report", params={"lat": house['Lattitude'], "lon": house['Longtitude']}).json()
-                            if r.get("status") == "success": render_amenity_report(r.get("data"))
-                            else: st.error("Could not fetch data.")
-                else:
-                    with st.expander("More Details"):
-                        if st.button("Scan Neighborhood", key=f"btn_list_{i}"):
-                            r = requests.get(f"{API_URL}/house_report", params={"lat": house['Lattitude'], "lon": house['Longtitude']}).json()
-                            if r.get("status") == "success": render_amenity_report(r.get("data"))
+                            try:
+                                r = requests.get(f"{API_URL}/house_report", params={"lat": house['Lattitude'], "lon": house['Longtitude']})
+                                if r.status_code == 200:
+                                    data_response = r.json()
+                                    if data_response.get("status") == "success": 
+                                        render_amenity_report(data_response.get("data"))
+                                    else: 
+                                        st.error(f"Error: {data_response.get('message', 'Unknown error')}")
+                                else: 
+                                    st.error(f"API Error: {r.status_code}")
+                            except Exception as e: 
+                                st.error(f"Connection error: {e}")
 
 # ==========================================
 # 3. REAL ESTATE AGENT VIEW
@@ -221,21 +263,68 @@ elif role == "Real Estate Agent" and st.session_state.authenticated:
 
     with tab_add:
         st.subheader("New Listing Entry")
-        with st.form("add_house_form", clear_on_submit=True):
+        with st.form("add_house_form", clear_on_submit=False):
             st.markdown("#### 1. Location Details")
             c1, c2 = st.columns(2)
-            new_sub = c1.text_input("Suburb", "Richmond")
-            new_addr = c2.text_input("Address", "101 Church St")
+            new_sub = c1.text_input("Suburb", value=st.session_state.get("new_sub", "Richmond"), key="new_sub")
+            new_addr = c2.text_input("Address", value=st.session_state.get("new_addr", "101 Church St"), key="new_addr")
+            
+            # Verify Address Button
+            verify_col1, verify_col2 = st.columns([3, 1])
+            with verify_col2:
+                if st.form_submit_button("🔍 Verify", use_container_width=True):
+                    # Read current inputs from session_state to avoid defaults on rerun
+                    addr = st.session_state.get("new_addr", "").strip()
+                    sub = st.session_state.get("new_sub", "").strip()
+                    if addr and sub:
+                        with st.spinner("Verifying address..."):
+                            try:
+                                r = requests.post(f"{API_URL}/verify_address", json={"address": addr, "suburb": sub})
+                                if r.status_code == 200:
+                                    result = r.json()
+                                    st.session_state.verified_address = {
+                                        "latitude": result["latitude"],
+                                        "longitude": result["longitude"],
+                                        "address": result["address"]
+                                    }
+                                    # Auto-fill lat/lon widgets
+                                    st.session_state["new_lat"] = result["latitude"]
+                                    st.session_state["new_lon"] = result["longitude"]
+                                    st.session_state.address_verified = True
+                                    st.success(f"✅ Address verified: {result['address']}")
+                                else:
+                                    st.error(f"❌ Address not found: {r.json().get('error', 'Unknown error')}")
+                                    st.session_state.verified_address = None
+                                    st.session_state.address_verified = False
+                            except Exception as e:
+                                st.error(f"❌ Error: {e}")
+                                st.session_state.verified_address = None
+                                st.session_state.address_verified = False
+                    else:
+                        st.error("Please enter both Address and Suburb")
             
             c3, c4 = st.columns(2)
             new_region = c3.selectbox("Region", ["Southern Metropolitan", "Northern Metropolitan", "Western Metropolitan", "Eastern Metropolitan", "South-Eastern Metropolitan"])
             # [NEW] Council Area Select
             new_council = c4.selectbox("Council Area", COUNCILS)
             
+            # Use verified coordinates if available
+            if st.session_state.verified_address:
+                default_lat = st.session_state.verified_address["latitude"]
+                default_lon = st.session_state.verified_address["longitude"]
+                verified_status = "✅ Verified"
+            else:
+                default_lat = -37.8136
+                default_lon = 144.9631
+                verified_status = "⚠️ Not verified"
+            
             lc1, lc2, lc3 = st.columns(3)
-            new_lat = lc1.number_input("Latitude", value=-37.8136, format="%.4f")
-            new_lon = lc2.number_input("Longitude", value=144.9631, format="%.4f")
+            new_lat = lc1.number_input("Latitude", value=st.session_state.get("new_lat", default_lat), format="%.4f", key="new_lat")
+            new_lon = lc2.number_input("Longitude", value=st.session_state.get("new_lon", default_lon), format="%.4f", key="new_lon")
             new_dist = lc3.number_input("Dist from CBD (km)", 0.0, 100.0, 5.0)
+            st.caption(f"Address Status: {verified_status}")
+            if not st.session_state.address_verified:
+                st.info("Please verify address successfully before publishing.")
 
             st.markdown("#### 2. Specs")
             s1, s2, s3, s4 = st.columns(4)
@@ -253,9 +342,13 @@ elif role == "Real Estate Agent" and st.session_state.authenticated:
             new_prop_count = st.number_input("Property Count (Density)", 0, 25000, 4000)
 
             if st.form_submit_button("🚀 Publish Listing"):
+                # Enforce address verification before allowing publish
+                if not st.session_state.get("address_verified", False):
+                    st.error("Cannot publish: address not verified or not found.")
+                    st.stop()
                 payload = {
-                    "Suburb": new_sub, "Address": new_addr, "Regionname": new_region, "CouncilArea": new_council,
-                    "Lattitude": new_lat, "Longtitude": new_lon, "Distance": new_dist,
+                    "Suburb": st.session_state.get("new_sub", new_sub), "Address": st.session_state.get("new_addr", new_addr), "Regionname": new_region, "CouncilArea": new_council,
+                    "Lattitude": st.session_state.get("new_lat", new_lat), "Longtitude": st.session_state.get("new_lon", new_lon), "Distance": new_dist,
                     "Rooms": new_rooms, "Bathroom": new_bath, "Car": new_car, "Type": new_type,
                     "Price": new_price, "Landsize": new_land, "BuildingArea": new_build, "YearBuilt": new_year,
                     "Propertycount": new_prop_count, "SellerG": "Agent User"
@@ -263,8 +356,14 @@ elif role == "Real Estate Agent" and st.session_state.authenticated:
                 try:
                     r = requests.post(f"{API_URL}/add_house", json=payload)
                     if r.status_code == 200:
-                        st.success(f"Added! ID: {r.json()['id']}")
+                        addr_text = f"{st.session_state.get('new_addr', new_addr)}, {st.session_state.get('new_sub', new_sub)}"
+                        st.success(f"Aggiunta casa in {addr_text}. ID: {r.json()['id']}")
                         st.cache_data.clear()
+                        # Clear input state after successful publish
+                        for k in ["new_sub", "new_addr", "new_lat", "new_lon", "verified_address"]:
+                            if k in st.session_state:
+                                del st.session_state[k]
+                        st.session_state.address_verified = False
                     else: st.error(f"Error: {r.text}")
                 except Exception as e: st.error(f"Error: {e}")
 
