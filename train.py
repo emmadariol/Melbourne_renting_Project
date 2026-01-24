@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import joblib
+import uuid
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
@@ -15,33 +16,31 @@ except FileNotFoundError:
     print("Error: melb_data.csv not found.")
     exit()
 
+# Generate Unique IDs
+df['HouseID'] = [str(uuid.uuid4()) for _ in range(len(df))]
+
 # 2. Feature Selection
-# We focus on variables that define the "Physical House" and "Location"
-# Excluded: Method, SellerG, Date (Sale metadata), Bedroom2 (Redundant)
 numeric_features = [
     'Rooms', 'Price', 'Distance', 'Bathroom', 'Car', 
     'Landsize', 'BuildingArea', 'Propertycount'
 ]
-categorical_features = ['Type', 'Regionname'] # 'CouncilArea' is too high cardinality, Regionname is better
+
+# [UPDATE] Added CouncilArea here
+categorical_features = ['Type', 'Regionname', 'CouncilArea']
 
 # 3. Data Cleaning
-# Drop rows where target critical info is missing
-df = df.dropna(subset=['Price', 'Lattitude', 'Longtitude', 'Regionname', 'Type'])
+# Ensure we drop rows where CouncilArea is missing too
+df = df.dropna(subset=['Price', 'Lattitude', 'Longtitude', 'Regionname', 'Type', 'CouncilArea'])
 
-# Handle "YearBuilt": It has many NaNs. We'll impute, but sometimes it's better to drop if too many are missing.
-# For this recommender, we will keep it but treat it carefully.
-# Actually, given your variable list, I'll add YearBuilt to numeric if it exists, otherwise skip.
 if 'YearBuilt' in df.columns:
     numeric_features.append('YearBuilt')
 
 # 4. Preprocessing Pipeline
-# Numeric: Fill missing values with Median -> Scale
 numeric_transformer = Pipeline(steps=[
     ('imputer', SimpleImputer(strategy='median')),
     ('scaler', StandardScaler())
 ])
 
-# Categorical: OneHotEncode (Handles 'h', 'u', 't', 'dev site', etc.)
 categorical_transformer = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
 
 preprocessor = ColumnTransformer(
