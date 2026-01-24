@@ -77,7 +77,7 @@ def save_system():
 
 def retrain_model():
     """Online Learning: Refits the KNN model on the current database."""
-    global model_pipeline
+
     print("Retraining KNN model...")
     X_transformed = preprocessor.transform(database)
     knn = model_pipeline.named_steps['knn']
@@ -151,7 +151,6 @@ def add_house():
 
 @app.route('/update_house', methods=['PUT'])
 def update_house():
-    global database
     try:
         data = request.json
         update_data = UpdateHouse(**data).dict()
