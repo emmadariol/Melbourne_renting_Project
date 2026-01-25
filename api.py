@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 import pandas as pd
 import numpy as np
 import uuid
@@ -10,6 +10,10 @@ from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from geopy.distance import geodesic
 from model_manager import ModelManager
+
+import logging
+from logging.handlers import RotatingFileHandler
+import time
 
 app = Flask(__name__)
 
@@ -24,6 +28,32 @@ model_pipeline = None
 database = None
 preprocessor = None
 features_list = []
+
+# --- Logging Setup ---
+logger = logging.getLogger('melbourne_housing_api')
+logger.setLevel(logging.INFO)
+
+# Keep logs in a dedicated file, max 10MB each, keep last 5
+handler = RotatingFileHandler('app_metrics.log', maxBytes=10*1024*1024, backupCount=5)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+@app.before_request
+def start_timer():
+    # Use 'g' (the Flask global object), not 'st.g'
+    g.start_time = time.time() 
+
+@app.after_request
+def log_request(response):
+    if request.path != '/health':
+        # Retrieve the start time from 'g'
+        latency = time.time() - getattr(g, 'start_time', time.time())
+        logger.info(f"Method: {request.method} | Path: {request.path} | "
+                    f"Status: {response.status_code} | Latency: {latency:.4f}s")
+    return response
+
+
 
 # --- Data Models ---
 # Change fields to Optional to allow "Smart Fill" logic when missing
