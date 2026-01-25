@@ -8,10 +8,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # PERSISTENZA: Mappa la cartella locale 'models' dentro il container
-      # Così i dati salvati (pkl, registry.json) non vengono persi al riavvio
+      # PERSISTENCE: Maps the local 'models' folder inside the container
+      # Ensures saved data (pkl, registry.json) persists across restarts
       - ./models:/app/models
-      # Opzionale: Mappa anche il codice per sviluppare senza ricostruire ogni volta
+      # Optional: Maps source code for hot-reloading during development without rebuilding
       # - .:/app
 
   # Frontend Service (Streamlit)
@@ -23,7 +23,7 @@ services:
     ports:
       - "8501:8501"
     environment:
-      # L'indirizzo deve corrispondere al nome del servizio API qui sopra
+      # The address must match the API service name defined above
       - API_URL=http://api:8000
     depends_on:
       - api
