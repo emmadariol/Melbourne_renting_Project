@@ -106,7 +106,6 @@ def save_system(note="Auto-update"):
 
 def retrain_model(note="Online Learning"):
     """Refits the KNN model on the current database (Online Learning)."""
-    global model_pipeline
     if model_pipeline is None: return
 
     print("🔄 Retraining KNN model on updated data...")
