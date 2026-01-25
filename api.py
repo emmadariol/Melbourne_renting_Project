@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, ValidationError
 from geo import GeoService
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+from geopy.distance import geodesic
 from model_manager import ModelManager
 
 app = Flask(__name__)
@@ -16,6 +17,7 @@ app = Flask(__name__)
 geo_service = GeoService()
 geocoder = Nominatim(user_agent="melbourne_housing_app")
 manager = ModelManager()
+CBD_COORDS = (-37.8136, 144.9631)
 
 # Global State
 model_pipeline = None
@@ -42,14 +44,14 @@ class UserPreferences(BaseModel):
     
     # Categorical features
     Type: str = Field("h", description="Type: h=house, u=unit, t=townhouse")
-    Regionname: str = Field("Southern Metropolitan", description="Region Name")
+    Regionname: Optional[str] = Field(None, description="Region Name")
+    CouncilArea: Optional[str] = Field(None, description="Council Area") 
     Method: str = Field("S", description="Sale Method: S, SP, PI, VB, SA")
 
 class NewHouse(UserPreferences):
     Suburb: str = Field(..., description="Suburb Name")
     Address: str = Field(..., description="Street Address")
     SellerG: str = Field("Private", description="Seller Agency")
-    CouncilArea: str = Field("Unknown", description="Council Area")
 
 class UpdateHouse(NewHouse):
     HouseID: str = Field(..., description="Unique ID is required for updates")
@@ -105,6 +107,54 @@ def save_system(note="Auto-update"):
     # Save via Manager
     manager.save_model(artifacts, note=note)
 
+def geo_fill(data: dict) -> dict:
+    """
+    [NEW] Auto-detects Region, Council, and Distance based on Suburb and Coordinates.
+    """
+    if database is None: return data
+
+    # 1. Distance Calculation (Lat/Lon -> CBD)
+    # We can do this because strict verification in add_house ensures we have coordinates
+    if data.get('Distance') is None and data.get('Lattitude') is not None and data.get('Longtitude') is not None:
+        try:
+            house_coords = (data['Lattitude'], data['Longtitude'])
+            dist = geodesic(house_coords, CBD_COORDS).km
+            data['Distance'] = round(dist, 1)
+            print(f"🗺️ Geo Fill: Calculated Distance -> {dist:.1f} km")
+        except Exception as e: 
+            print(f"⚠️ Geo Fill Distance error: {e}")
+
+    # 2. Region & Council Inference (from Suburb neighbors)
+    suburb = data.get('Suburb')
+    if suburb:
+        neighbors = database[database['Suburb'].str.lower() == suburb.lower()]
+        
+        if not neighbors.empty:
+            # If Regionname is missing, take the most frequent in that suburb
+            if not data.get('Regionname') or data.get('Regionname') == "Auto-detect":
+                mode_reg = neighbors['Regionname'].mode()
+                if not mode_reg.empty: 
+                    data['Regionname'] = mode_reg[0]
+                    print(f"🗺️ Geo Fill: Region inferred -> {data['Regionname']}")
+            
+            # If CouncilArea is missing, take the most frequent
+            if not data.get('CouncilArea') or data.get('CouncilArea') == "Auto-detect":
+                mode_counc = neighbors['CouncilArea'].mode()
+                if not mode_counc.empty: 
+                    data['CouncilArea'] = mode_counc[0]
+                    print(f"🗺️ Geo Fill: Council inferred -> {data['CouncilArea']}")
+                
+            # If Propertycount is missing
+            if data.get('Propertycount') is None:
+                data['Propertycount'] = neighbors['Propertycount'].median()
+
+    # Fallbacks to prevent pipeline crashes if suburb is totally new
+    if not data.get('Regionname'): data['Regionname'] = "Southern Metropolitan"
+    if not data.get('CouncilArea'): data['CouncilArea'] = "Unknown"
+    
+    return data
+
+
 def smart_fill(input_data: dict) -> dict:
     """
     Implements Option 2: Smart Lookup.
@@ -115,6 +165,8 @@ def smart_fill(input_data: dict) -> dict:
     
     data = input_data.copy()
     
+    data = geo_fill(data)
+
     # 1. Identify context (Suburb & Type)
     suburb = data.get('Suburb')
     h_type = data.get('Type', 'h')

@@ -303,11 +303,23 @@ elif role == "Real Estate Agent" and st.session_state.authenticated:
                     else:
                         st.error("Please enter both Address and Suburb")
             
-            c3, c4 = st.columns(2)
-            new_region = c3.selectbox("Region", ["Southern Metropolitan", "Northern Metropolitan", "Western Metropolitan", "Eastern Metropolitan", "South-Eastern Metropolitan"])
-            # [NEW] Council Area Select
-            new_council = c4.selectbox("Council Area", COUNCILS)
-            
+            # We use an expander so they are hidden by default (Auto-detect),
+            # but the agent can open it to override them manually.
+            with st.expander("Advanced Location Details (Auto-detected)"):
+                st.caption("Leave these as 'Auto-detect' to let the system calculate them based on the address.")
+                
+                ac1, ac2, ac3 = st.columns(3)
+                # Add "Auto-detect" as the first option
+                region_opts = ["Auto-detect", "Southern Metropolitan", "Northern Metropolitan", "Western Metropolitan", "Eastern Metropolitan", "South-Eastern Metropolitan", "Eastern Victoria", "Northern Victoria", "Western Victoria"]
+                new_region = ac1.selectbox("Region", region_opts)
+                
+                council_opts = ["Auto-detect"] + COUNCILS
+                new_council = ac2.selectbox("Council Area", council_opts)
+                
+                # Distance defaults to 0.0 (which API interprets as "calculate for me")
+                new_dist = ac3.number_input("Dist from CBD (km)", 0.0, 100.0, 0.0, help="Leave 0.0 to auto-calculate")
+
+            # --- Coordinates (Auto-filled by verification) ---
             # Use verified coordinates if available
             if st.session_state.verified_address:
                 default_lat = st.session_state.verified_address["latitude"]
@@ -318,10 +330,13 @@ elif role == "Real Estate Agent" and st.session_state.authenticated:
                 default_lon = 144.9631
                 verified_status = "⚠️ Not verified"
             
-            lc1, lc2, lc3 = st.columns(3)
+            st.caption(f"Address Status: {verified_status}")
+            
+            # Hidden coordinate inputs (or visible but read-only-ish)
+            lc1, lc2 = st.columns(2)
             new_lat = lc1.number_input("Latitude", value=st.session_state.get("new_lat", default_lat), format="%.4f", key="new_lat")
             new_lon = lc2.number_input("Longitude", value=st.session_state.get("new_lon", default_lon), format="%.4f", key="new_lon")
-            new_dist = lc3.number_input("Dist from CBD (km)", 0.0, 100.0, 5.0)
+            
             st.caption(f"Address Status: {verified_status}")
             if not st.session_state.address_verified:
                 st.info("Please verify address successfully before publishing.")
@@ -346,9 +361,20 @@ elif role == "Real Estate Agent" and st.session_state.authenticated:
                 if not st.session_state.get("address_verified", False):
                     st.error("Cannot publish: address not verified or not found.")
                     st.stop()
+                
+                # [MODIFIED] Logic to send None if Auto-detect is selected
+                final_region = new_region if new_region != "Auto-detect" else None
+                final_council = new_council if new_council != "Auto-detect" else None
+                final_dist = new_dist if new_dist > 0 else None # 0 means auto-calc
+
                 payload = {
-                    "Suburb": st.session_state.get("new_sub", new_sub), "Address": st.session_state.get("new_addr", new_addr), "Regionname": new_region, "CouncilArea": new_council,
-                    "Lattitude": st.session_state.get("new_lat", new_lat), "Longtitude": st.session_state.get("new_lon", new_lon), "Distance": new_dist,
+                    "Suburb": st.session_state.get("new_sub", new_sub), 
+                    "Address": st.session_state.get("new_addr", new_addr), 
+                    "Regionname": final_region, 
+                    "CouncilArea": final_council,
+                    "Lattitude": st.session_state.get("new_lat", new_lat), 
+                    "Longtitude": st.session_state.get("new_lon", new_lon), 
+                    "Distance": final_dist,
                     "Rooms": new_rooms, "Bathroom": new_bath, "Car": new_car, "Type": new_type,
                     "Price": new_price, "Landsize": new_land, "BuildingArea": new_build, "YearBuilt": new_year,
                     "Propertycount": new_prop_count, "SellerG": "Agent User"
