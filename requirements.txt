@@ -62,8 +62,3 @@ plotly
 matplotlib==3.10.8
 seaborn==0.13.2
 ipykernel==7.1.0
-
-json
-os
-time
-shutil
