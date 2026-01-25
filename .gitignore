@@ -20,6 +20,7 @@ Thumbs.db
 # --- MLOps Artifacts ---
 # Exclude generated model binaries
 model_artifacts.pkl
+models/
 
 # --- Datasets ---
 # Uncomment if dataset exceeds 100MB
