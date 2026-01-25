@@ -7,6 +7,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
+from model_manager import ModelManager
 
 # 1. Load Data
 try:
@@ -58,7 +59,7 @@ model = Pipeline(steps=[
 print(f"Training on features: {numeric_features + categorical_features}")
 model.fit(df)
 
-# 6. Save Artifacts
+# 6. Save Artifacts 
 artifacts = {
     "pipeline": model,
     "database": df.reset_index(drop=True),
@@ -66,5 +67,5 @@ artifacts = {
     "categorical_features": categorical_features
 }
 
-joblib.dump(artifacts, "model_artifacts.pkl")
-print("Model updated and saved.")
+manager = ModelManager()
+manager.save_model(artifacts, note="Initial training from train.py")
