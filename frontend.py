@@ -404,18 +404,54 @@ elif role == "Real Estate Agent" and st.session_state.authenticated:
                 st.write(f"Found {len(results)} properties.")
                 for house in results:
                     with st.container(border=True):
-                        c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
-                        c1.markdown(f"**{house['Address']}**")
-                        c1.caption(f"{house['Suburb']} | {house.get('CouncilArea', 'N/A')}")
-                        c2.write(f"Price: **${house['Price']:,.0f}** | Rooms: {house['Rooms']}")
-                        if c3.button("✏️ Edit", key=f"edit_{house['HouseID']}"):
-                            st.session_state.edit_house_data = house
-                            st.rerun()
-                        if c4.button("🗑 Remove", key=f"del_{house['HouseID']}", type="primary"):
-                            requests.delete(f"{API_URL}/remove_house", params={"id": house['HouseID']})
-                            st.success("Removed!")
-                            st.cache_data.clear()
-                            st.rerun()
+                        # Header with Address and Action Buttons
+                        col_header, col_actions = st.columns([3, 1])
+                        
+                        with col_header:
+                            st.markdown(f"### {house.get('Address', 'Address not available')}")
+                            st.caption(f"📍 {house.get('Suburb')} | {house.get('CouncilArea', 'N/A')} | {house.get('Regionname', '')}")
+                        
+                        with col_actions:
+                            # Buttons grouped to the right
+                            b1, b2 = st.columns(2)
+                            if b1.button("✏️ Edit", key=f"edit_{house['HouseID']}", help="Edit"):
+                                st.session_state.edit_house_data = house
+                                st.rerun()
+                            if b2.button("🗑 Delete", key=f"del_{house['HouseID']}", type="primary", help="Delete"):
+                                requests.delete(f"{API_URL}/remove_house", params={"id": house['HouseID']})
+                                st.success("Removed!")
+                                st.cache_data.clear()
+                                st.rerun()
+
+                        st.divider()
+
+                        # Grid with all features
+                        ic1, ic2, ic3, ic4 = st.columns(4)
+                        
+                        # Column 1: Price and Year
+                        ic1.markdown(f"💰 **Price:** ${house.get('Price', 0):,.0f}")
+                        ic1.markdown(f"📅 **Year:** {int(house.get('YearBuilt', 0))}")
+                        
+                        # Column 2: Rooms and Bathrooms
+                        ic2.markdown(f"🛏 **Beds:** {house.get('Rooms')}")
+                        ic2.markdown(f"🚿 **Baths:** {house.get('Bathroom')}")
+                        
+                        # Column 3: Car and Type
+                        type_map = {"h": "House", "u": "Unit", "t": "Townhouse"}
+                        house_type = type_map.get(house.get('Type'), house.get('Type'))
+                        ic3.markdown(f"🚗 **Car:** {house.get('Car')}")
+                        ic3.markdown(f"🏠 **Type:** {house_type}")
+                        
+                        # Column 4: Dimensions
+                        ic4.markdown(f"🌍 **Land:** {house.get('Landsize')} m²")
+                        ic4.markdown(f"🏗 **Build:** {house.get('BuildingArea')} m²")
+                        
+                        # Expandable extra details
+                        with st.expander("Technical Details (Distance, Lat/Lon)"):
+                            st.write(f"**CBD Distance:** {house.get('Distance')} km")
+                            st.write(f"**Latitude:** {house.get('Lattitude')}")
+                            st.write(f"**Longitude:** {house.get('Longtitude')}")
+                            st.write(f"**Density (Property Count):** {house.get('Propertycount')}")
 
         st.divider()
 
