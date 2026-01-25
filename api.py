@@ -225,7 +225,6 @@ def smart_fill(input_data: dict) -> dict:
 
 def retrain_model(note="Online Learning"):
     """Refits the KNN model on the current database (Online Learning)."""
-    global model_pipeline
     if model_pipeline is None: return
 
     print("🔄 Retraining KNN model on updated data...")
