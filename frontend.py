@@ -131,14 +131,12 @@ if role == "Home Seeker":
         search = st.button("Find Matches", type="primary", use_container_width=True)
 
     if search:
-        # Default CouncilArea for search (hidden) to "Yarra City Council" or generic
-        # In a real app, you might want to filter by council too.
         payload = {
             "Rooms": rooms, "Price": price, "Distance": dist, "Bathroom": bathroom,
             "Car": car, "Landsize": land, "BuildingArea": build_area,
             "Propertycount": prop_count, "YearBuilt": year_built,
             "Type": type_code, "Regionname": region,
-            "CouncilArea": "Yarra City Council" # Placeholder for search distance calc
+            "CouncilArea": "Yarra City Council" 
         }
         with st.spinner("Searching active listings..."):
             try:
@@ -153,17 +151,43 @@ if role == "Home Seeker":
     if not data:
         st.info("Use the sidebar filters to search for active rental properties.")
     else:
-        st.caption("📍 **Click a red dot** to view details at the top of the list.")
-        map_df = pd.DataFrame(data)
-        view_state = pdk.ViewState(latitude=map_df['Lattitude'].mean(), longitude=map_df['Longtitude'].mean(), zoom=11)
-        layer = pdk.Layer("ScatterplotLayer", data=map_df, get_position='[Longtitude, Lattitude]', get_color='[200, 30, 0, 160]', get_radius=300, pickable=True, id="house_layer", auto_highlight=True)
-        selection = st.pydeck_chart(pdk.Deck(initial_view_state=view_state, layers=[layer], tooltip={"html": "<b>{Address}</b><br>${Price}"}), on_select="rerun", selection_mode="single-object")
+        st.caption("📍 **Click a red dot** or use the **View on Map** buttons below to highlight a property.")
         
+        # --- ENHANCED MAP LOGIC ---
+        map_df = pd.DataFrame(data).reset_index() # reset_index allows the layer to see 'index'
+        selected_idx = st.session_state.get("selected_idx")
+
+        # Define conditional logic for the selected dot: yellow and larger if index matches
+        color_exp = f"index == {selected_idx} ? [255, 255, 0, 255] : [200, 30, 0, 160]"
+        radius_exp = f"index == {selected_idx} ? 600 : 300"
+
+        layer = pdk.Layer(
+            "ScatterplotLayer",
+            data=map_df,
+            get_position='[Longtitude, Lattitude]',
+            get_color=color_exp,
+            get_radius=radius_exp,
+            pickable=True,
+            id="house_layer",
+            auto_highlight=True,
+            # update_triggers ensures the map redraws when selected_idx changes
+            update_triggers={'get_color': [selected_idx], 'get_radius': [selected_idx]}
+        )
+
+        view_state = pdk.ViewState(latitude=map_df['Lattitude'].mean(), longitude=map_df['Longtitude'].mean(), zoom=11)
+        selection = st.pydeck_chart(
+            pdk.Deck(initial_view_state=view_state, layers=[layer], tooltip={"html": "<b>{Address}</b><br>${Price}"}), 
+            on_select="rerun", 
+            selection_mode="single-object"
+        )
+        
+        # Update session state from map click
         if selection.selection and "indices" in selection.selection and "house_layer" in selection.selection["indices"]:
             indices = selection.selection["indices"]["house_layer"]
             if indices:
                 st.session_state.selected_idx = indices[0]
 
+        # Process data for display (bringing selected item to top)
         display_data = data.copy()
         is_reordered = False
         selected_item_data = None
@@ -179,7 +203,7 @@ if role == "Home Seeker":
         st.divider()
         st.subheader("Property Matches")
         
-        # Show the selected property details first if one is selected
+        # Show Selected Property card
         if is_reordered and selected_item_data:
             st.markdown("### 🎯 SELECTED PROPERTY")
             with st.container(border=True):
@@ -195,56 +219,66 @@ if role == "Home Seeker":
                 ic4.write(f"📐 **{selected_item_data['BuildingArea']}** m²")
                 
                 st.markdown("---")
-                st.markdown("**Infrastructure Scan**")
                 if st.button("Generate Neighborhood Report", key="btn_selected", type="primary", use_container_width=True):
                     with st.spinner("Analyzing neighborhood..."):
                         try:
                             r = requests.get(f"{API_URL}/house_report", params={"lat": selected_item_data['Lattitude'], "lon": selected_item_data['Longtitude']})
                             if r.status_code == 200:
-                                data_response = r.json()
-                                if data_response.get("status") == "success": 
-                                    render_amenity_report(data_response.get("data"))
-                                else: 
-                                    st.error(f"Error from API: {data_response.get('message', 'Unknown error')}")
-                            else: 
-                                st.error(f"API Error: {r.status_code}")
-                        except Exception as e: 
-                            st.error(f"Connection error: {e}")
+                                data_res = r.json()
+                                if data_res.get("status") == "success": render_amenity_report(data_res.get("data"))
+                        except Exception as e: st.error(f"Error: {e}")
             st.divider()
 
         st.subheader("All Properties")
 
-        for i, house in enumerate(display_data):
-            card_title = f"{house.get('Address')}"
+        for i, house in enumerate(data):
+            # Check if this card matches the one selected on the map
+            is_this_selected = (st.session_state.selected_idx == i)
+            card_highlight = "🎯 " if is_this_selected else ""
             
             with st.container(border=True):
+                # 1. Header Row: Address and Price
                 c1, c2 = st.columns([3, 1])
-                c1.subheader(card_title)
+                c1.subheader(f"{card_highlight}{house.get('Address')}")
                 c1.caption(f"{house.get('Suburb')} | {house.get('CouncilArea')} | {house.get('Type')}")
                 c2.metric("Price", f"${house.get('Price', 0):,.0f}")
                 
+                # 2. Specs Row: Beds, Baths, etc.
                 ic1, ic2, ic3, ic4 = st.columns(4)
                 ic1.write(f"🛏 **{house['Rooms']}** Beds")
                 ic2.write(f"🚿 **{house['Bathroom']}** Baths")
                 ic3.write(f"🚗 **{house['Car']}** Spots")
                 ic4.write(f"📐 **{house['BuildingArea']}** m²")
                 
-                with st.expander("More Details"):
-                    if st.button("Scan Neighborhood", key=f"btn_list_{i}"):
-                        with st.spinner("Analyzing neighborhood..."):
-                            try:
-                                r = requests.get(f"{API_URL}/house_report", params={"lat": house['Lattitude'], "lon": house['Longtitude']})
-                                if r.status_code == 200:
-                                    data_response = r.json()
-                                    if data_response.get("status") == "success": 
-                                        render_amenity_report(data_response.get("data"))
-                                    else: 
-                                        st.error(f"Error: {data_response.get('message', 'Unknown error')}")
-                                else: 
-                                    st.error(f"API Error: {r.status_code}")
-                            except Exception as e: 
-                                st.error(f"Connection error: {e}")
-
+                # 3. Actions Row: Dedicated space for buttons away from the report area
+                st.markdown("---") # Visual separator for actions
+                btn_col1, btn_col2 = st.columns([1, 2])
+                
+                with btn_col1:
+                    # Relocated "View on Map" button
+                    if st.button("📍 View on Map", key=f"view_map_{i}", use_container_width=True):
+                        st.session_state.selected_idx = i
+                        st.rerun()
+                
+                with btn_col2:
+                    # "More Details" remains clean. If amenities are generated, 
+                    # they appear inside this expander without pushing the Map button away.
+                    with st.expander("More Details & Neighborhood"):
+                        if st.button("Scan Neighborhood", key=f"btn_list_{i}", use_container_width=True):
+                            with st.spinner("Analyzing..."):
+                                try:
+                                    r = requests.get(f"{API_URL}/house_report", params={
+                                        "lat": house['Lattitude'], 
+                                        "lon": house['Longtitude']
+                                    })
+                                    if r.status_code == 200:
+                                        data_res = r.json()
+                                        if data_res.get("status") == "success": 
+                                            # Amenities are rendered here, separate from the Map button
+                                            render_amenity_report(data_res.get("data"))
+                                except Exception as e: 
+                                    st.error(f"Error: {e}")
+                                    
 # ==========================================
 # 3. REAL ESTATE AGENT VIEW
 # ==========================================
