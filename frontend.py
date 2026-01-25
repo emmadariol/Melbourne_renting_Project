@@ -192,7 +192,7 @@ if role == "Home Seeker":
                 ic1.write(f"🛏 **{selected_item_data['Rooms']}** Beds")
                 ic2.write(f"🚿 **{selected_item_data['Bathroom']}** Baths")
                 ic3.write(f"🚗 **{selected_item_data['Car']}** Spots")
-                ic4.write(f"📐 **{selected_item_data['Landsize']}** m²")
+                ic4.write(f"📐 **{selected_item_data['BuildingArea']}** m²")
                 
                 st.markdown("---")
                 st.markdown("**Infrastructure Scan**")
@@ -227,7 +227,7 @@ if role == "Home Seeker":
                 ic1.write(f"🛏 **{house['Rooms']}** Beds")
                 ic2.write(f"🚿 **{house['Bathroom']}** Baths")
                 ic3.write(f"🚗 **{house['Car']}** Spots")
-                ic4.write(f"📐 **{house['Landsize']}** m²")
+                ic4.write(f"📐 **{house['BuildingArea']}** m²")
                 
                 with st.expander("More Details"):
                     if st.button("Scan Neighborhood", key=f"btn_list_{i}"):

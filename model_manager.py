@@ -32,18 +32,54 @@ class ModelManager:
             json.dump(data, f, indent=4)
         shutil.move(temp_path, self.registry_path)
 
+    def _prune_old_versions(self, max_keep=10):
+        """
+        Retention Policy: Keeps only the last 'max_keep' versions.
+        Deletes older .pkl files to save space.
+        """
+        reg = self._load_registry()
+        history = reg["history"]
+
+        # If we have more versions than allowed
+        if len(history) > max_keep:
+            # Calculate how many to remove (oldest are at the start of the list)
+            num_to_remove = len(history) - max_keep
+            to_remove = history[:num_to_remove]
+            to_keep = history[num_to_remove:]
+
+            print(f"🧹 Pruning: Removing {num_to_remove} old version(s)...")
+
+            for item in to_remove:
+                filename = item["filename"]
+                filepath = os.path.join(self.models_dir, filename)
+                
+                # Delete the physical .pkl file
+                if os.path.exists(filepath):
+                    try:
+                        os.remove(filepath)
+                        print(f"   ❌ Deleted file: {filename}")
+                    except OSError as e:
+                        print(f"   ⚠️ Error deleting {filename}: {e}")
+                else:
+                    print(f"   ⚠️ File not found (already deleted?): {filename}")
+
+            # Update registry to keep only recent history
+            reg["history"] = to_keep
+            self._save_registry(reg)
+            print("✅ Registry cleaned.")
+
     def save_model(self, artifacts, note=""):
-        """Saves a new model version and updates the registry."""
+        """Saves a new model version, updates registry, and prunes old versions."""
         timestamp = int(time.time())
         version_id = f"model_v{timestamp}"
         filename = f"{version_id}.pkl"
         filepath = os.path.join(self.models_dir, filename)
 
-        # 1. Save the Artifact File
+        # Save the Artifact File
         joblib.dump(artifacts, filepath)
         print(f"✅ Saved artifact: {filepath}")
 
-        # 2. Update Registry
+        # Update Registry
         reg = self._load_registry()
         reg["current"] = filename
         reg["history"].append({
@@ -54,6 +90,10 @@ class ModelManager:
         })
         self._save_registry(reg)
         print(f"✅ Registry updated. Current is now: {filename}")
+
+        # Apply Retention Policy (Auto-cleanup)
+        self._prune_old_versions(max_keep=10)
+        
         return version_id
 
     def load_current_model(self):
