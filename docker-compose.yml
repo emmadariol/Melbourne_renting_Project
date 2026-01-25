@@ -7,6 +7,12 @@ services:
     container_name: house-api
     ports:
       - "8000:8000"
+    volumes:
+      # PERSISTENZA: Mappa la cartella locale 'models' dentro il container
+      # Così i dati salvati (pkl, registry.json) non vengono persi al riavvio
+      - ./models:/app/models
+      # Opzionale: Mappa anche il codice per sviluppare senza ricostruire ogni volta
+      # - .:/app
 
   # Frontend Service (Streamlit)
   frontend:
@@ -16,8 +22,8 @@ services:
     container_name: house-frontend
     ports:
       - "8501:8501"
-    # Configure API URL using the service name (internal Docker network)
     environment:
+      # L'indirizzo deve corrispondere al nome del servizio API qui sopra
       - API_URL=http://api:8000
     depends_on:
       - api
