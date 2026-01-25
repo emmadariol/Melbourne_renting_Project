@@ -25,3 +25,9 @@ models/
 # --- Datasets ---
 # Uncomment if dataset exceeds 100MB
 # melb_data.csv
+
+# Log di sistema e metriche
+app_metrics.log
+
+# Eventuali altri file di log
+*.log

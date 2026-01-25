@@ -13,6 +13,8 @@ services:
       - ./models:/app/models
       # Optional: Maps source code for hot-reloading during development without rebuilding
       # - .:/app
+      # RELIABILITY: Persists logs so you can analyze metrics after the container stops
+      - ./app_metrics.log:/app/app_metrics.log
 
   # Frontend Service (Streamlit)
   frontend:
@@ -25,5 +27,19 @@ services:
     environment:
       # The address must match the API service name defined above
       - API_URL=http://api:8000
+    depends_on:
+      - api
+
+  # Performance & Reliability Metrics (Locust)
+  locust:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: house-metrics-tester
+    ports:
+      - "8089:8089"
+    volumes:
+      - .:/app
+    command: locust -f locustfile.py --host http://api:8000
     depends_on:
       - api
