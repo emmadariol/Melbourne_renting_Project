@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, mean_absolute_percentage_error
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
@@ -106,8 +108,51 @@ def train():
         ('model', NearestNeighbors(n_neighbors=10, metric='cosine', algorithm='brute'))
     ])
 
-    # Train the Model
-    print("🚀 Starting model training...")
+
+    # Validation step
+    print("📊 Performing Model Validation...")
+    
+    # Split data: 80% for training the temporary model, 20% for testing performance
+    # This ensures we evaluate on unseen data before deploying the full model.
+    X_train, X_test, y_train, y_test = train_test_split(X, df_clean['Price'], test_size=0.2, random_state=42)
+    
+    # Train a temporary pipeline on the training set only
+    pipeline.fit(X_train)
+    
+    # Validation Logic: Predict prices for the Test Set
+    
+    # Transform the test set features using the preprocessor
+    X_test_transformed = pipeline.named_steps['preprocessor'].transform(X_test)
+    
+    # Find the K nearest neighbors for each house in the test set
+    distances, indices = pipeline.named_steps['model'].kneighbors(X_test_transformed)
+    
+    # Calculate predicted price as the mean of neighbors' prices
+    predicted_prices = []
+    for neighbor_idx in indices:
+        # Retrieve actual prices of the found neighbors from y_train
+        mean_neighbor_price = y_train.iloc[neighbor_idx].mean()
+        predicted_prices.append(mean_neighbor_price)
+    
+    # Calculate Key Performance Indicators (KPIs)
+    mae = mean_absolute_error(y_test, predicted_prices)
+    rmse = np.sqrt(mean_squared_error(y_test, predicted_prices)) # Penalizes large outliers
+    r2 = r2_score(y_test, predicted_prices)                      # Accuracy score
+    mape = mean_absolute_percentage_error(y_test, predicted_prices) * 100 # Error in percentage
+    
+    # Print Validation Report
+    print(f"\n📈 --- VALIDATION REPORT (Validation Set: {len(y_test)} samples) ---")
+    print(f"   MAE  (Mean Absolute Error):      ${mae:,.0f}")
+    print(f"   RMSE (Root Mean Squared Error):  ${rmse:,.0f}")
+    print(f"   MAPE (Mean Percentage Error):    {mape:.2f}%")
+    print(f"   R² Score (Variance Explained):   {r2:.4f}")
+    print(f"---------------------------------------------------\n")
+
+
+    # Train the Final Model on 100% of data
+    print("🚀 Starting full model training on entire dataset...")
+
+    # Fit the pipeline on the complete cleaned dataset
     pipeline.fit(X)
     print("✅ Training complete.")
 
