@@ -1,20 +1,18 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-import joblib
+from model_manager import ModelManager # <--- Import
 
-# 1. Load Data Efficiently
-# We use st.cache_data so we only load the heavy file once, not on every click.
 @st.cache_data
 def load_market_data():
     try:
-        # Load the same artifacts file created by train.py
-        artifacts = joblib.load("model_artifacts.pkl")
+        manager = ModelManager()
+        # This will now always fetch the file pointed to by registry.json
+        artifacts = manager.load_current_model()
         df = artifacts["database"]
         return df
-    except FileNotFoundError:
-        st.error("Stats Error: 'model_artifacts.pkl' not found. Run train.py first.")
+    except Exception as e:
+        st.error(f"Stats Error: Could not load model. {e}")
         return pd.DataFrame()
 
 class MarketStats:
@@ -22,17 +20,12 @@ class MarketStats:
         self.df = load_market_data()
 
     def show_dashboard(self, selected_region, selected_type):
-        """
-        Main function to display all stats widgets.
-        """
+        """Main function to display all stats widgets."""
         if self.df.empty:
             return
 
         st.markdown(f"### Market Trends: {selected_region}")
         
-        # Filter data for relevance
-        # We filter by Region to keep the comparison fair, and Property Type (House vs Unit)
-        # because comparing House prices to Unit prices skews the data.
         filtered_df = self.df[
             (self.df['Regionname'] == selected_region) & 
             (self.df['Type'] == selected_type)
@@ -42,7 +35,7 @@ class MarketStats:
             st.warning("Not enough data to generate statistics for this selection.")
             return
 
-        # --- KPI ROW ---
+        # KPI ROW
         avg_price = filtered_df['Price'].mean()
         med_price = filtered_df['Price'].median()
         count = len(filtered_df)
@@ -54,30 +47,22 @@ class MarketStats:
         
         st.divider()
 
-        # --- CHART 1: Price Distribution (Histogram) ---
-        # "Is my budget realistic?"
+        # CHART 1: Price Distribution
         st.markdown("#### Price Distribution")
         fig_hist = px.histogram(
-            filtered_df, 
-            x="Price", 
-            nbins=30, 
+            filtered_df, x="Price", nbins=30, 
             title=f"Price Range for '{selected_type}' in {selected_region}",
-            color_discrete_sequence=["#FF4B4B"] # Streamlit Red
+            color_discrete_sequence=["#FF4B4B"]
         )
         fig_hist.update_layout(bargap=0.1, template="plotly_white")
         st.plotly_chart(fig_hist, use_container_width=True)
 
-        # --- CHART 2: Price vs. Size (Scatter) ---
-        # "Am I paying for the house or the land?"
+        # CHART 2: Scatter
         st.markdown("#### Price vs. Land Size")
-        # Filter out extreme outliers for a better chart (e.g., massive rural properties)
         clean_scatter = filtered_df[filtered_df['Landsize'] < 2000] 
         
         fig_scatter = px.scatter(
-            clean_scatter, 
-            x="Landsize", 
-            y="Price", 
-            color="Rooms", # Color by room count adds extra insight
+            clean_scatter, x="Landsize", y="Price", color="Rooms",
             title=f"Price vs Landsize (under 2000sqm)",
             template="plotly_white",
             labels={"Landsize": "Land Size (sqm)", "Price": "Price ($)"}
