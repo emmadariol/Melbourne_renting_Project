@@ -19,5 +19,5 @@ RUN touch app_metrics.log && chmod 666 app_metrics.log
 # Expose the port used by the API
 EXPOSE 8000
 
-# Start the FastAPI application
+# Start the application
 CMD ["python", "api.py"]
