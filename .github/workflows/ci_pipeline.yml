@@ -45,3 +45,9 @@ jobs:
         python -m py_compile frontend.py
         # Check train.py only if data exists (optional safety check)
         if [ -f melb_data.csv ]; then python -m py_compile train.py; fi
+
+    # 6. Unit Testing: Run the test suite
+    - name: Run Unit Tests
+      run: |
+        # Execute the tests defined in test_unit.py
+        pytest test_unit.py
