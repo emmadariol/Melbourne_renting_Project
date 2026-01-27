@@ -284,6 +284,7 @@ if role == "Home Seeker":
 # ==========================================
 elif role == "Real Estate Agent" and st.session_state.authenticated:
     st.markdown("### 📋 Property Management Dashboard")
+    
     tab_stats, tab_add, tab_manage = st.tabs(["📊 Analytics", "➕ Add Property", "🛠 Manage & Edit"])
 
     with tab_stats:
@@ -416,8 +417,27 @@ elif role == "Real Estate Agent" and st.session_state.authenticated:
                 try:
                     r = requests.post(f"{API_URL}/add_house", json=payload)
                     if r.status_code == 200:
+                        result = r.json()
                         addr_text = f"{st.session_state.get('new_addr', new_addr)}, {st.session_state.get('new_sub', new_sub)}"
-                        st.success(f"Aggiunta casa in {addr_text}. ID: {r.json()['id']}")
+                        st.success(f"✅ Property added: {addr_text}. ID: {result['id']}")
+                        
+                        # Show drift status if retrain occurred
+                        if result.get("drift_check") and "drift" in result["drift_check"]:
+                            drift_data = result["drift_check"]
+                            full_drift = drift_data.get("drift")
+                            prev_rows = drift_data.get("reference_rows", 0)
+                            curr_rows = drift_data.get("current_rows", 0)
+                            added_rows = curr_rows - prev_rows
+                            drift_ratio = full_drift.get("drift_ratio", 0)
+                            should_retrain = full_drift.get("should_retrain", False)
+                            drifted_feats = full_drift.get("drifted_features", [])
+                            
+                            st.info("🔄 **Model retrained** after reaching threshold.")
+                            if should_retrain:
+                                st.warning(f"⚠️ **Drift Detected**: Adding {added_rows} properties caused dataset drift ({drift_ratio:.1%}). Features: {', '.join(drifted_feats[:5])}")
+                            else:
+                                st.success(f"✅ **No Drift**: Added {added_rows} properties remain consistent with existing data (drift: {drift_ratio:.1%})")
+                        
                         st.cache_data.clear()
                         # Clear input state after successful publish
                         for k in ["new_sub", "new_addr", "new_lat", "new_lon", "verified_address"]:

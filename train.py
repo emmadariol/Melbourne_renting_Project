@@ -13,7 +13,7 @@ def clean_data(df):
     """
     Applies data cleaning and preprocessing transformations based on the EDA findings.
     """
-    print("🧹 Starting data cleaning process...")
+    print("Starting data cleaning process...")
     
     # --- Missing Value Imputation (Group-based) ---
     
@@ -52,7 +52,7 @@ def clean_data(df):
     # Drop rows where Price is missing (target variable quality)
     df = df.dropna(subset=['Price'])
     
-    print(f"✅ Cleaning complete. Dataset shape: {df.shape}")
+    print(f"Cleaning complete. Dataset shape: {df.shape}")
     return df
 
 def train():
@@ -60,7 +60,7 @@ def train():
     try:
         df = pd.read_csv('melb_data.csv')
     except FileNotFoundError:
-        print("❌ Error: 'melb_data.csv' file not found.")
+        print("Error: 'melb_data.csv' file not found.")
         return
 
     # Apply Custom Cleaning
@@ -110,7 +110,7 @@ def train():
 
 
     # Validation step
-    print("📊 Performing Model Validation...")
+    print("Performing Model Validation...")
     
     # Split data: 80% for training the temporary model, 20% for testing performance
     # This ensures we evaluate on unseen data before deploying the full model.
@@ -141,7 +141,7 @@ def train():
     mape = mean_absolute_percentage_error(y_test, predicted_prices) * 100 # Error in percentage
     
     # Print Validation Report
-    print(f"\n📈 --- VALIDATION REPORT (Validation Set: {len(y_test)} samples) ---")
+    print(f"\n--- VALIDATION REPORT (Validation Set: {len(y_test)} samples) ---")
     print(f"   MAE  (Mean Absolute Error):      ${mae:,.0f}")
     print(f"   RMSE (Root Mean Squared Error):  ${rmse:,.0f}")
     print(f"   MAPE (Mean Percentage Error):    {mape:.2f}%")
@@ -150,11 +150,11 @@ def train():
 
 
     # Train the Final Model on 100% of data
-    print("🚀 Starting full model training on entire dataset...")
+    print("Starting full model training on entire dataset...")
 
     # Fit the pipeline on the complete cleaned dataset
     pipeline.fit(X)
-    print("✅ Training complete.")
+    print("Training complete.")
 
     # Save Artifacts using ModelManager
     manager = ModelManager()
@@ -170,7 +170,7 @@ def train():
     }
     
     version = manager.save_model(artifacts, note="Updated model with EDA-based cleaning and English comments")
-    print(f"💾 Model saved successfully. Version: {version}")
+    print(f"Model saved successfully. Version: {version}")
 
 if __name__ == "__main__":
     train()

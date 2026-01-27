@@ -2,6 +2,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from train import clean_data
+from drift import evaluate_drift, simulate_drifted_houses
 
 
 @pytest.fixture
@@ -90,3 +91,85 @@ def test_council_area_imputation(dirty_data):
     # Check that logic inferred a value (not left as 'Unknown' if neighbor exists)
     # Note: In our mock data, 'Richmond' appears twice, so it might infer 'Yarra'
     assert "Unknown" not in df_clean['CouncilArea'].values, "Categorical imputation failed to infer value"
+
+
+# ==========================================
+# DATA DRIFT TESTS
+# ==========================================
+
+
+@pytest.fixture(scope="module")
+def reference_data():
+    df = pd.read_csv('melb_data.csv')
+    return clean_data(df).head(500)  # small sample keeps tests quick
+
+
+def test_population_stability_flags_drift(reference_data):
+    numerical_features = [
+        'Rooms', 'Price', 'Distance', 'Bedroom2', 'Bathroom',
+        'Car', 'Landsize', 'BuildingArea', 'YearBuilt',
+        'Lattitude', 'Longtitude', 'Propertycount'
+    ]
+    categorical_features = ['Type', 'Regionname', 'Method']
+
+    drifted = simulate_drifted_houses(reference_data, n=300)
+
+    result = evaluate_drift(
+        reference_df=reference_data,
+        new_df=drifted,
+        numerical_features=numerical_features,
+        categorical_features=categorical_features,
+        psi_threshold=0.2,  # by decreasing this, we make the test more sensitive
+        max_drift_feature_ratio=0.3, # percent of features that must drift to trigger retrain
+    )
+
+    assert result['should_retrain'], "Drifted data should trigger retraining flag"
+    assert 'Price' in result['drifted_features'], "Price shift should be detected as drift"
+
+
+def test_no_drift_when_distributions_match(reference_data):
+    numerical_features = [
+        'Rooms', 'Price', 'Distance', 'Bedroom2', 'Bathroom',
+        'Car', 'Landsize', 'BuildingArea', 'YearBuilt',
+        'Lattitude', 'Longtitude', 'Propertycount'
+    ]
+    categorical_features = ['Type', 'Regionname', 'Method']
+
+    new_sample = reference_data.sample(400, replace=True, random_state=1)
+
+    result = evaluate_drift(
+        reference_df=reference_data,
+        new_df=new_sample,
+        numerical_features=numerical_features,
+        categorical_features=categorical_features,
+        psi_threshold=0.2,
+        max_drift_feature_ratio=0.3,
+    )
+
+    assert not result['should_retrain'], "Similar distributions should not trigger retraining"
+
+
+def test_single_feature_spike_triggers_retrain(reference_data):
+    """Even one feature with a big PSI spike should force retrain."""
+    numerical_features = [
+        'Rooms', 'Price', 'Distance', 'Bedroom2', 'Bathroom',
+        'Car', 'Landsize', 'BuildingArea', 'YearBuilt',
+        'Lattitude', 'Longtitude', 'Propertycount'
+    ]
+    categorical_features = ['Type', 'Regionname', 'Method']
+
+    spiked = reference_data.copy()
+    spiked['Price'] = spiked['Price'] * 5  # big shift only on Price
+
+    result = evaluate_drift(
+        reference_df=reference_data,
+        new_df=spiked,
+        numerical_features=numerical_features,
+        categorical_features=categorical_features,
+        psi_threshold=0.2,
+        psi_high_threshold=0.4,
+        max_drift_feature_ratio=0.5,
+    )
+
+    assert result['should_retrain'], "Single high-PSI feature must trigger retrain"
+    assert 'Price' in result['drifted_features'], "Price spike should be flagged as drift"

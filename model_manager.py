@@ -57,16 +57,16 @@ class ModelManager:
                 if os.path.exists(filepath):
                     try:
                         os.remove(filepath)
-                        print(f"   ❌ Deleted file: {filename}")
+                        print(f"Deleted file: {filename}")
                     except OSError as e:
-                        print(f"   ⚠️ Error deleting {filename}: {e}")
+                        print(f"Error deleting {filename}: {e}")
                 else:
-                    print(f"   ⚠️ File not found (already deleted?): {filename}")
+                    print(f"File not found (already deleted?): {filename}")
 
             # Update registry to keep only recent history
             reg["history"] = to_keep
             self._save_registry(reg)
-            print("✅ Registry cleaned.")
+            print("Registry cleaned.")
 
     def save_model(self, artifacts, note=""):
         """Saves a new model version, updates registry, and prunes old versions."""
@@ -75,9 +75,16 @@ class ModelManager:
         filename = f"{version_id}.pkl"
         filepath = os.path.join(self.models_dir, filename)
 
+
+
+        # Inside save_model method:
+        directory = os.path.dirname(filepath)
+        if not os.path.exists(directory):
+            os.makedirs(directory, exist_ok=True)
+
         # Save the Artifact File
         joblib.dump(artifacts, filepath)
-        print(f"✅ Saved artifact: {filepath}")
+        print(f"Saved artifact: {filepath}")
 
         # Update Registry
         reg = self._load_registry()
@@ -89,7 +96,7 @@ class ModelManager:
             "note": note
         })
         self._save_registry(reg)
-        print(f"✅ Registry updated. Current is now: {filename}")
+        print(f"Registry updated. Current is now: {filename}")
 
         # Apply Retention Policy (Auto-cleanup)
         self._prune_old_versions(max_keep=10)
@@ -109,5 +116,5 @@ class ModelManager:
         if not os.path.exists(filepath):
              raise FileNotFoundError(f"Registry points to {filepath}, but file is missing.")
              
-        print(f"🔄 Loading model: {filepath}")
+        print(f"Loading model: {filepath}")
         return joblib.load(filepath)
