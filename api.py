@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import uuid
 import os
+import json
 from typing import Optional
 from pydantic import BaseModel, Field, ValidationError
 from geo import GeoService
@@ -10,6 +11,8 @@ from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from geopy.distance import geodesic
 from model_manager import ModelManager
+from train import train
+from drift import compare_latest_models
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -23,11 +26,18 @@ geocoder = Nominatim(user_agent="melbourne_housing_app")
 manager = ModelManager()
 CBD_COORDS = (-37.8136, 144.9631)
 
+# --- Buffer configuration ---
+RETRAIN_THRESHOLD = 5  # Number of new houses to trigger retraining
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PENDING_DATA_FILE = os.path.join(BASE_DIR, 'pending_houses.jsonl')
+pending_count = 0
+
 # Global State
 model_pipeline = None
 database = None
 preprocessor = None
 features_list = []
+last_drift_check = None  # Stores result of last model comparison
 
 # --- Logging Setup ---
 logger = logging.getLogger('melbourne_housing_api')
@@ -39,24 +49,22 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+
+
 @app.before_request
 def start_timer():
-    # Use 'g' (the Flask global object), not 'st.g'
     g.start_time = time.time() 
 
 @app.after_request
 def log_request(response):
     if request.path != '/health':
-        # Retrieve the start time from 'g'
         latency = time.time() - getattr(g, 'start_time', time.time())
         logger.info(f"Method: {request.method} | Path: {request.path} | "
                     f"Status: {response.status_code} | Latency: {latency:.4f}s")
     return response
 
 
-
 # --- Data Models ---
-# Change fields to Optional to allow "Smart Fill" logic when missing
 class UserPreferences(BaseModel):
     # Numerical features
     Rooms: Optional[int] = Field(None, description="Number of rooms")
@@ -90,13 +98,32 @@ class UpdateHouse(NewHouse):
 
 def load_system():
     global model_pipeline, database, preprocessor, features_list
+    
+    # Attempt 1: Load existing model and data
     try:
-        # Load via Manager
+        print("Loading system artifacts...")
         artifacts = manager.load_current_model()
+    except Exception as e:
+        # If load of the model fails, start Cold Start
+        print(f"Model not found or corrupted ({e}). Initiating COLD START training...")
         
+        try:
+            # Perform "on-the-fly" training
+            train()
+            print("Cold start training complete. Reloading system...")
+            
+            # Attempt 2: Retry loading after training
+            artifacts = manager.load_current_model()
+            
+        except Exception as e2:
+            print(f"CRITICAL ERROR: Auto-training failed. Check if 'melb_data.csv' is present.")
+            print(f"Details: {e2}")
+            return # Interrupt startup if training also fails
+
+    try:
         model_pipeline = artifacts["pipeline"]
         
-        # Handle different naming conventions (train.py uses 'reference_data')
+        # Handle different naming conventions
         database = artifacts.get("reference_data")
         if database is None:
             database = artifacts.get("database")
@@ -104,29 +131,27 @@ def load_system():
         if database is None:
             raise KeyError("Neither 'reference_data' nor 'database' found in model artifacts.")
 
-        # Load feature list
         features_list = artifacts.get("features", [])
         if not features_list:
-             # Fallback for older models
              features_list = artifacts.get("numeric_features", []) + artifacts.get("categorical_features", [])
 
         preprocessor = model_pipeline.named_steps['preprocessor']
         
         # Ensure IDs exist
         if 'HouseID' not in database.columns:
-            print("⚠️ Adding missing HouseIDs to loaded data...")
+            print("Adding missing HouseIDs to loaded data")
             database['HouseID'] = [str(uuid.uuid4()) for _ in range(len(database))]
             
-        print(f"✅ System Loaded Successfully. {len(database)} houses in database.")
+        print(f"System Loaded Successfully. {len(database)} houses in database.")
         
     except Exception as e:
-        print(f"❌ CRITICAL ERROR loading system: {e}")
-        print("Tip: Run 'python train.py' to generate a valid model file first.")
+        print(f"Error extracting artifacts: {e}")
+
 
 def save_system(note="Auto-update"):
     """Saves the current state of the database and model."""
     if model_pipeline is None or database is None:
-        print("⚠️ Cannot save system: State is not initialized.")
+        print("Cannot save system: State is not initialized.")
         return
 
     artifacts = {
@@ -139,7 +164,7 @@ def save_system(note="Auto-update"):
 
 def geo_fill(data: dict) -> dict:
     """
-    [NEW] Auto-detects Region, Council, and Distance based on Suburb and Coordinates.
+    Auto-detects Region, Council, and Distance based on Suburb and Coordinates.
     """
     if database is None: return data
 
@@ -150,9 +175,9 @@ def geo_fill(data: dict) -> dict:
             house_coords = (data['Lattitude'], data['Longtitude'])
             dist = geodesic(house_coords, CBD_COORDS).km
             data['Distance'] = round(dist, 1)
-            print(f"🗺️ Geo Fill: Calculated Distance -> {dist:.1f} km")
+            print(f"Geo Fill: Calculated Distance -> {dist:.1f} km")
         except Exception as e: 
-            print(f"⚠️ Geo Fill Distance error: {e}")
+            print(f"Geo Fill Distance error: {e}")
 
     # 2. Region & Council Inference (from Suburb neighbors)
     suburb = data.get('Suburb')
@@ -165,14 +190,14 @@ def geo_fill(data: dict) -> dict:
                 mode_reg = neighbors['Regionname'].mode()
                 if not mode_reg.empty: 
                     data['Regionname'] = mode_reg[0]
-                    print(f"🗺️ Geo Fill: Region inferred -> {data['Regionname']}")
+                    print(f"Geo Fill: Region inferred -> {data['Regionname']}")
             
             # If CouncilArea is missing, take the most frequent
             if not data.get('CouncilArea') or data.get('CouncilArea') == "Auto-detect":
                 mode_counc = neighbors['CouncilArea'].mode()
                 if not mode_counc.empty: 
                     data['CouncilArea'] = mode_counc[0]
-                    print(f"🗺️ Geo Fill: Council inferred -> {data['CouncilArea']}")
+                    print(f"Geo Fill: Council inferred -> {data['CouncilArea']}")
                 
             # If Propertycount is missing
             if data.get('Propertycount') is None:
@@ -187,7 +212,7 @@ def geo_fill(data: dict) -> dict:
 
 def smart_fill(input_data: dict) -> dict:
     """
-    Implements Option 2: Smart Lookup.
+    Implements Smart Lookup.
     Fills missing values (None or 0) using the median of similar houses 
     (same Suburb and Type) from the loaded database.
     """
@@ -214,7 +239,6 @@ def smart_fill(input_data: dict) -> dict:
         similar_houses = database
 
     # 3. Fields to impute
-    # Note: We treat 0 as missing for these fields (like in train.py)
     fields_config = {
         'Price': {'allow_zero': False},
         'Rooms': {'allow_zero': False},
@@ -228,7 +252,7 @@ def smart_fill(input_data: dict) -> dict:
         'Propertycount': {'allow_zero': False}
     }
 
-    print(f"🧠 Smart Fill running for {suburb} ({h_type}). Found {len(similar_houses)} neighbors.")
+    print(f"Smart Fill running for {suburb} ({h_type}). Found {len(similar_houses)} neighbors.")
 
     for field, config in fields_config.items():
         val = data.get(field)
@@ -257,7 +281,7 @@ def retrain_model(note="Online Learning"):
     """Refits the KNN model on the current database (Online Learning)."""
     if model_pipeline is None: return
 
-    print("🔄 Retraining KNN model on updated data...")
+    print("Retraining KNN model on updated data...")
     try:
         # Transform current database using the pre-trained preprocessor
         X_transformed = preprocessor.transform(database)
@@ -270,9 +294,54 @@ def retrain_model(note="Online Learning"):
         model_pipeline.steps[-1] = ('model', knn)
         
         save_system(note=note)
-        print("✅ Retraining complete and saved.")
+        print("Retraining complete and saved.")
     except Exception as e:
-        print(f"⚠️ Error during retraining: {e}")
+        print(f"Error during retraining: {e}")
+
+
+
+# --- Utility per il Buffer ---
+
+def append_to_buffer(house_data):
+    try:
+        with open(PENDING_DATA_FILE, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(house_data) + '\n')
+            f.flush()
+        print(f"--- FILE SAVED IN: {os.path.abspath(PENDING_DATA_FILE)} ---")
+    except Exception as e:
+        print(f"Errore: {e}")
+
+def clear_buffer():
+    """Clears the buffer file after retraining."""
+    if os.path.exists(PENDING_DATA_FILE):
+        os.remove(PENDING_DATA_FILE)
+
+def load_pending_on_startup():
+    global database, pending_count
+    if os.path.exists(PENDING_DATA_FILE):
+        try:
+            with open(PENDING_DATA_FILE, 'r') as f:
+                pending_list = [json.loads(line) for line in f if line.strip()]
+            
+            if pending_list:
+                df_pending = pd.DataFrame(pending_list)
+                if database is not None:
+                    database = pd.concat([database, df_pending], ignore_index=True)
+                else:
+                    database = df_pending
+                
+                pending_count = len(pending_list)
+                print(f"Loaded {pending_count} pending records from file.")
+                
+                # If on startup we already exceed the threshold, immediate retrain
+                if pending_count >= RETRAIN_THRESHOLD:
+                    retrain_model("Startup batch retrain")
+                    clear_buffer()
+                    pending_count = 0
+        except Exception as e:
+            print(f"Error loading startup buffer: {e}")
+
+
 
 # --- Routes ---
 
@@ -295,8 +364,7 @@ def recommend():
         prefs = UserPreferences(**data)
         input_dict = prefs.dict()
         
-        # 2. Apply Smart Fill (Contextual Defaults)
-        # Even for recommendations, if user doesn't specify Price, infer it from Suburb!
+        # 2. Apply Smart Fill
         input_dict = smart_fill(input_dict)
         
         # 3. Create DataFrame
@@ -357,72 +425,93 @@ def search_houses():
     clean_matches = [{k: (v if pd.notna(v) else None) for k, v in h.items()} for h in matches]
     return jsonify({"results": clean_matches})
 
+
 @app.route('/add_house', methods=['POST'])
 def add_house():
-    global database
+    global database, pending_count
     if database is None: return jsonify({"error": "System not initialized"}), 503
     
     try:
         data = request.json
         
-        # --- [NEW] STRICT GEO-VERIFICATION ---
-        # Se le coordinate non sono fornite, DOBBIAMO trovarle con precisione.
+        # --- GEO-VERIFICATION RIGOROSA (Ripristinata) ---
         if data.get('Lattitude') is None or data.get('Longtitude') is None:
-            
             address = data.get('Address', '').strip()
             suburb = data.get('Suburb', '').strip()
             
             if not address or not suburb:
                  return jsonify({"error": "Address and Suburb are required for verification."}), 400
 
-            print(f"📍 Attempting strict verification for: {address}, {suburb}")
+            print(f"Attempting strict verification for: {address}, {suburb}")
             full_address = f"{address}, {suburb}, Victoria, Australia"
             
             try:
                 location = geocoder.geocode(full_address, timeout=5)
                 
+                # BLOCCO DI CONTROLLO: Se non troviamo l'indirizzo esatto, rifiutiamo l'inserimento
                 if location is None:
-                    # BLOCCO TOTALE: Se non troviamo l'indirizzo esatto, rifiutiamo l'inserimento.
                     return jsonify({
                         "error": "Strict Verification Failed: Address not found on maps. House NOT added."
                     }), 400
                 
-                # Se lo troviamo, iniettiamo le coordinate precise nei dati
+                # Iniezione coordinate verificate
                 data['Lattitude'] = location.latitude
                 data['Longtitude'] = location.longitude
-                print(f"✅ Verified: {location.address} ({location.latitude}, {location.longitude})")
+                print(f"Verified: {location.address} ({location.latitude}, {location.longitude})")
                 
             except Exception as e:
-                # Se il servizio di mappe è giù, meglio bloccare che inserire dati sporchi?
-                # In base alla tua richiesta "voglio il metodo preciso", blocchiamo.
                 return jsonify({"error": f"Geocoding service unavailable: {str(e)}"}), 503
         
-        # 1. Parse with Pydantic (Now coordinates are guaranteed to be present)
+        # 1. Validazione Pydantic e Smart Fill
         new_house_model = NewHouse(**data)
         new_house_dict = new_house_model.dict()
         
-        # 2. Apply Smart Fill (Contextual Defaults for Price, Rooms, etc.)
+        # Applica Smart Fill (Contextual Defaults per Price, Rooms, ecc.)
         final_house_data = smart_fill(new_house_dict)
-        
-        # 3. Add ID and Align Columns
         final_house_data['HouseID'] = str(uuid.uuid4())
         
+        # Allineamento colonne del DataFrame
         for col in database.columns:
             if col not in final_house_data:
                 final_house_data[col] = None
                 
-        # 4. Save and Retrain
+        # 2. Persistenza nel Database In-Memory e nel Buffer JSONL
         database = pd.concat([database, pd.DataFrame([final_house_data])], ignore_index=True)
-        retrain_model(note=f"Added house {final_house_data.get('Address', 'Unknown')}")
+        append_to_buffer(final_house_data)
+        pending_count += 1
+        
+        # 3. Gestione Retraining a Soglia
+        status_msg = f"House added to buffer ({pending_count}/{RETRAIN_THRESHOLD})"
+        drift_result = None
+        if pending_count >= RETRAIN_THRESHOLD:
+            print(f"🚀 Soglia raggiunta ({pending_count}). Avvio retraining batch...")
+            retrain_model(note=f"Batch retraining after {pending_count} inserts")
+            
+            # Automatic drift check after retrain
+            global last_drift_check
+            try:
+                drift_result = compare_latest_models()
+                last_drift_check = drift_result
+                print(f"✅ Drift check completed. Full dataset drift: {drift_result.get('drift', {}).get('should_retrain', False)}")
+            except Exception as e:
+                print(f"⚠️ Drift check failed: {e}")
+                last_drift_check = {"error": str(e)}
+            
+            clear_buffer()
+            pending_count = 0
+            status_msg = "Threshold reached: Model retrained and buffer cleared."
         
         return jsonify({
             "message": "House successfully verified and added", 
             "id": final_house_data['HouseID'],
-            "coords": {"lat": final_house_data['Lattitude'], "lon": final_house_data['Longtitude']}
+            "status": status_msg,
+            "coords": {"lat": final_house_data['Lattitude'], "lon": final_house_data['Longtitude']},
+            "drift_check": drift_result
         })
         
     except ValidationError as e: return jsonify({"error": e.errors()}), 400
     except Exception as e: return jsonify({"error": str(e)}), 500
+
 
 @app.route('/update_house', methods=['PUT'])
 def update_house():
@@ -460,6 +549,38 @@ def remove_house():
     retrain_model(note=f"Removed house {house_id}")
     return jsonify({"message": "House removed"})
 
+@app.route('/buffer_status', methods=['GET'])
+def buffer_status():
+    """Restituisce lo stato attuale del buffer temporaneo."""
+    content = []
+    if os.path.exists(PENDING_DATA_FILE):
+        with open(PENDING_DATA_FILE, 'r') as f:
+            content = [json.loads(line) for line in f if line.strip()]
+    
+    return jsonify({
+        "pending_count_variable": pending_count,
+        "file_exists": os.path.exists(PENDING_DATA_FILE),
+        "records_in_file": len(content),
+        "threshold": RETRAIN_THRESHOLD,
+        "remaining_until_retrain": max(0, RETRAIN_THRESHOLD - pending_count),
+        "buffer_content": content
+    })
+
+@app.route('/drift_status', methods=['GET'])
+def drift_status():
+    """Returns the last drift check result after retrain."""
+    if last_drift_check is None:
+        return jsonify({"status": "no_retrain_yet", "message": "No retrain has occurred yet."})
+    return jsonify(last_drift_check)
+
 if __name__ == '__main__':
-    load_system()
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    load_system() 
+    load_pending_on_startup() 
+    
+    # Stampa le rotte per sicurezza nel terminale
+    print("\n--- Rotte Registrate ---")
+    for rule in app.url_map.iter_rules():
+        print(f"{rule.endpoint}: {rule.rule}")
+    print("------------------------\n")
+    
+    app.run(host='0.0.0.0', port=8000, debug=False)
