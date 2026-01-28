@@ -47,7 +47,7 @@ class ModelManager:
             to_remove = history[:num_to_remove]
             to_keep = history[num_to_remove:]
 
-            print(f"🧹 Pruning: Removing {num_to_remove} old version(s)...")
+            print(f"Pruning: Removing {num_to_remove} old version(s)...")
 
             for item in to_remove:
                 filename = item["filename"]
