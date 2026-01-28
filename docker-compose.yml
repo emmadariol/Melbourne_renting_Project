@@ -15,6 +15,13 @@ services:
       # - .:/app
       # RELIABILITY: Persists logs so you can analyze metrics after the container stops
       - ./app_metrics.log:/app/app_metrics.log
+      #healthcheck for the dalay of the frontend
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # Frontend Service (Streamlit)
   frontend:
@@ -28,7 +35,8 @@ services:
       # The address must match the API service name defined above
       - API_URL=http://api:8000
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
   # Performance & Reliability Metrics (Locust)
   locust:
