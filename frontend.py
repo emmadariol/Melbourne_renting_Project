@@ -285,16 +285,7 @@ if role == "Home Seeker":
 elif role == "Real Estate Agent" and st.session_state.authenticated:
     st.markdown("### 📋 Property Management Dashboard")
     
-    tab_stats, tab_add, tab_manage = st.tabs(["📊 Analytics", "➕ Add Property", "🛠 Manage & Edit"])
-
-    with tab_stats:
-        st.caption("Market overview")
-        c1, c2 = st.columns(2)
-        region_stats = c1.selectbox("Region", ["Southern Metropolitan", "Northern Metropolitan", "Western Metropolitan"])
-        type_stats = c2.selectbox("Type", ["h", "u", "t"])
-        if st.button("Load Stats"):
-            market_engine = stats.MarketStats()
-            market_engine.show_dashboard(region_stats, type_stats)
+    tab_add, tab_manage = st.tabs(["➕ Add Property", "🛠 Manage & Edit"])
 
     with tab_add:
         st.subheader("New Listing Entry")

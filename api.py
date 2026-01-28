@@ -434,7 +434,7 @@ def add_house():
     try:
         data = request.json
         
-        # --- GEO-VERIFICATION RIGOROSA (Ripristinata) ---
+        # --- GEO-VERIFICATION ---
         if data.get('Lattitude') is None or data.get('Longtitude') is None:
             address = data.get('Address', '').strip()
             suburb = data.get('Suburb', '').strip()
@@ -448,13 +448,13 @@ def add_house():
             try:
                 location = geocoder.geocode(full_address, timeout=5)
                 
-                # BLOCCO DI CONTROLLO: Se non troviamo l'indirizzo esatto, rifiutiamo l'inserimento
+                # CONTROL BLOCK: if the right address is not available, block the insertion
                 if location is None:
                     return jsonify({
                         "error": "Strict Verification Failed: Address not found on maps. House NOT added."
                     }), 400
                 
-                # Iniezione coordinate verificate
+                # Verificated coordinates injection
                 data['Lattitude'] = location.latitude
                 data['Longtitude'] = location.longitude
                 print(f"Verified: {location.address} ({location.latitude}, {location.longitude})")
@@ -462,29 +462,29 @@ def add_house():
             except Exception as e:
                 return jsonify({"error": f"Geocoding service unavailable: {str(e)}"}), 503
         
-        # 1. Validazione Pydantic e Smart Fill
+        # 1. Validation Smart Fill
         new_house_model = NewHouse(**data)
         new_house_dict = new_house_model.dict()
         
-        # Applica Smart Fill (Contextual Defaults per Price, Rooms, ecc.)
+        # Apply Smart Fill (Contextual Defaults per Price, Rooms, ecc.)
         final_house_data = smart_fill(new_house_dict)
         final_house_data['HouseID'] = str(uuid.uuid4())
         
-        # Allineamento colonne del DataFrame
+        # Align DataFrame columns
         for col in database.columns:
             if col not in final_house_data:
                 final_house_data[col] = None
                 
-        # 2. Persistenza nel Database In-Memory e nel Buffer JSONL
+        # 2. Saving record in Database In-Memory and Buffer JSONL
         database = pd.concat([database, pd.DataFrame([final_house_data])], ignore_index=True)
         append_to_buffer(final_house_data)
         pending_count += 1
         
-        # 3. Gestione Retraining a Soglia
+        # 3. Retrain at a given treshold
         status_msg = f"House added to buffer ({pending_count}/{RETRAIN_THRESHOLD})"
         drift_result = None
         if pending_count >= RETRAIN_THRESHOLD:
-            print(f"🚀 Soglia raggiunta ({pending_count}). Avvio retraining batch...")
+            print(f"Treshold achived ({pending_count}). Start retraining batch...")
             retrain_model(note=f"Batch retraining after {pending_count} inserts")
             
             # Automatic drift check after retrain
@@ -492,9 +492,9 @@ def add_house():
             try:
                 drift_result = compare_latest_models()
                 last_drift_check = drift_result
-                print(f"✅ Drift check completed. Full dataset drift: {drift_result.get('drift', {}).get('should_retrain', False)}")
+                print(f"Drift check completed. Full dataset drift: {drift_result.get('drift', {}).get('should_retrain', False)}")
             except Exception as e:
-                print(f"⚠️ Drift check failed: {e}")
+                print(f"Drift check failed: {e}")
                 last_drift_check = {"error": str(e)}
             
             clear_buffer()
@@ -551,7 +551,7 @@ def remove_house():
 
 @app.route('/buffer_status', methods=['GET'])
 def buffer_status():
-    """Restituisce lo stato attuale del buffer temporaneo."""
+    """Return current state of the buffer."""
     content = []
     if os.path.exists(PENDING_DATA_FILE):
         with open(PENDING_DATA_FILE, 'r') as f:
@@ -577,8 +577,7 @@ if __name__ == '__main__':
     load_system() 
     load_pending_on_startup() 
     
-    # Stampa le rotte per sicurezza nel terminale
-    print("\n--- Rotte Registrate ---")
+    print("\n--- Registered routes ---")
     for rule in app.url_map.iter_rules():
         print(f"{rule.endpoint}: {rule.rule}")
     print("------------------------\n")

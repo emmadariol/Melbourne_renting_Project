@@ -16,12 +16,14 @@ gitdb==4.0.12
 GitPython==3.1.45
 h11==0.16.0
 idna==3.11
+ipykernel==7.1.0
 Jinja2==3.1.6
 joblib==1.5.3
 jsonschema==4.25.1
 jsonschema-specifications==2025.9.1
 locust==2.33.0
 MarkupSafe==3.0.3
+matplotlib==3.10.8
 narwhals==2.14.0
 networkx==3.6.1
 numpy==2.4.0
@@ -29,6 +31,7 @@ osmnx==2.0.7
 packaging==25.0
 pandas==2.3.3
 pillow==12.0.0
+plotly==6.5.2
 protobuf==6.33.2
 pyarrow==22.0.0
 pydantic==2.12.5
@@ -36,11 +39,13 @@ pydantic_core==2.41.5
 pydeck==0.9.1
 pyogrio==0.12.1
 pyproj==3.7.2
+pytest==9.0.2
 python-dateutil==2.9.0.post0
 pytz==2025.2
 referencing==0.37.0
 requests==2.32.5
 rpds-py==0.30.0
+seaborn==0.13.2
 scikit-learn==1.8.0
 scipy==1.16.3
 shapely==2.1.2
@@ -57,8 +62,3 @@ typing_extensions==4.15.0
 tzdata==2025.3
 urllib3==2.6.2
 watchdog==6.0.0
-plotly
-matplotlib==3.10.8
-seaborn==0.13.2
-ipykernel==7.1.0
-pytest == 9.0.2
