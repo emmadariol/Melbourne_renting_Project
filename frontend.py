@@ -112,6 +112,7 @@ if role == "Home Seeker":
                 "Eastern Metropolitan", "South-Eastern Metropolitan", "Eastern Victoria",
                 "Northern Victoria", "Western Victoria"
             ])
+            council = st.selectbox("Council Area", ["Auto-detect"] + COUNCILS)
             price = st.number_input("Target Price ($)", 100_000, 10_000_000, 1_000_000, step=50_000)
             dist = st.slider("Max Distance (CBD)", 1.0, 50.0, 10.0)
 
@@ -131,13 +132,17 @@ if role == "Home Seeker":
         search = st.button("Find Matches", type="primary", use_container_width=True)
 
     if search:
+
+        selected_council = council if council != "Auto-detect" else None
+
         payload = {
             "Rooms": rooms, "Price": price, "Distance": dist, "Bathroom": bathroom,
             "Car": car, "Landsize": land, "BuildingArea": build_area,
             "Propertycount": prop_count, "YearBuilt": year_built,
             "Type": type_code, "Regionname": region,
-            "CouncilArea": "Yarra City Council" 
+            "CouncilArea": selected_council
         }
+
         with st.spinner("Searching active listings..."):
             try:
                 res = requests.post(f"{API_URL}/recommend", json=payload)
@@ -240,7 +245,7 @@ if role == "Home Seeker":
                 # 1. Header Row: Address and Price
                 c1, c2 = st.columns([3, 1])
                 c1.subheader(f"{card_highlight}{house.get('Address')}")
-                c1.caption(f"{house.get('Suburb')} | {house.get('CouncilArea')} | {house.get('Type')}")
+                c1.caption(f"{house.get('Suburb')} | {house.get('Regionname')} |{house.get('CouncilArea')} | {house.get('Type')}")
                 c2.metric("Price", f"${house.get('Price', 0):,.0f}")
                 
                 # 2. Specs Row: Beds, Baths, etc.
